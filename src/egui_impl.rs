@@ -569,7 +569,7 @@ fn on_window_close(
       glutin_window_context
         .integration
         .borrow_mut()
-        .on_exit(glutin_window_context.window());
+        .on_exit(glutin_window_context.context.window());
       glutin_window_context
         .painter
         .borrow_mut()
