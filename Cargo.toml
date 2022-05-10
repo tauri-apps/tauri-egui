@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tauri = { git = "https://github.com/tauri-apps/tauri", branch = "dev" }
 tauri-runtime = { git = "https://github.com/tauri-apps/tauri", branch = "dev" }
 tauri-runtime-wry = { git = "https://github.com/tauri-apps/tauri", branch = "dev" }
 egui = { git = "https://github.com/wusyong/egui", branch = "tao" }

@@ -10,6 +10,7 @@ use std::{
   },
 };
 
+use tauri::{AppHandle, Runtime};
 use tauri_runtime::UserEvent;
 use tauri_runtime_wry::{
   wry::application::{
@@ -39,7 +40,8 @@ pub struct EguiPlugin {
   is_focused: bool,
 }
 
-pub struct EguiPluginHandle {
+pub struct EguiPluginHandle<R: Runtime> {
+  app: AppHandle<R>,
   create_window_tx: SyncSender<CreateWindowPayload>,
 }
 
@@ -54,28 +56,29 @@ impl Default for EguiPlugin {
 }
 
 impl EguiPlugin {
-  pub fn handle(&self) -> EguiPluginHandle {
+  pub fn handle<R: Runtime>(&self, app: AppHandle<R>) -> EguiPluginHandle<R> {
     EguiPluginHandle {
+      app,
       create_window_tx: self.create_window_channel.0.clone(),
     }
   }
 }
 
-impl EguiPluginHandle {
+impl<R: Runtime> EguiPluginHandle<R> {
   pub fn create_window(
     &self,
     label: String,
     app: Box<dyn epi::App + Send>,
     native_options: epi::NativeOptions,
-  ) {
-    self
-      .create_window_tx
-      .send(CreateWindowPayload {
+  ) -> tauri::Result<()> {
+    let create_window_tx = self.create_window_tx.clone();
+    self.app.run_on_main_thread(move || {
+      let _ = create_window_tx.send(CreateWindowPayload {
         label,
         app,
         native_options,
-      })
-      .unwrap();
+      });
+    })
   }
 }
 
@@ -90,7 +93,9 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin {
     context: EventLoopIterationContext<'_, T>,
     web_context: &WebContextStore,
   ) -> bool {
+    println!("on event");
     if let Ok(payload) = self.create_window_channel.1.try_recv() {
+      println!("try recv!!");
       egui_impl::create_gl_window(
         event_loop,
         &context.webview_id_map,
