@@ -93,9 +93,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin {
     context: EventLoopIterationContext<'_, T>,
     web_context: &WebContextStore,
   ) -> bool {
-    println!("on event");
     if let Ok(payload) = self.create_window_channel.1.try_recv() {
-      println!("try recv!!");
       egui_impl::create_gl_window(
         event_loop,
         &context.webview_id_map,
