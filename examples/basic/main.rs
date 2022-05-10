@@ -23,7 +23,7 @@ async fn open_native_window(
     ..Default::default()
   };
 
-  egui_handle.create_egui_window(
+  egui_handle.create_window(
     "native-window".to_string(),
     Box::new(egui_app),
     native_options,

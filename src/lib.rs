@@ -62,7 +62,7 @@ impl EguiPlugin {
 }
 
 impl EguiPluginHandle {
-  pub fn create_egui_window(
+  pub fn create_window(
     &self,
     label: String,
     app: Box<dyn epi::App + Send>,
