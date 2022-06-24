@@ -496,9 +496,8 @@ pub fn handle_gl_loop<T: UserEvent>(
                 }
               }
             }
+            prevent_default = true;
           }
-
-          prevent_default = true;
         } else if should_quit {
           // prevent deadlock on the `if should quit` below
           drop(windows_lock);
