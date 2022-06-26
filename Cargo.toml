@@ -18,7 +18,6 @@ egui-tao = { git = "https://github.com/wusyong/egui", branch = "tao", features =
 egui_glow = { git = "https://github.com/wusyong/egui", branch = "tao" }
 tao-glutin = { git = "https://github.com/wusyong/glutin", branch = "tao", version = "0.1.0" }
 glow = "0.11"
-once_cell = "1.8"
 rand = "0.8"
 
 [dev-dependencies]
