@@ -8,14 +8,14 @@
 )]
 
 use egui::{FontData, FontDefinitions, FontFamily};
-use tauri::{Manager, RunEvent, State};
+use tauri::{RunEvent, State};
 use tauri_egui::{egui, epi};
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 #[tauri::command]
 async fn open_native_window(
-  egui_handle: State<'_, tauri_egui::EguiPluginHandle<tauri::Wry>>,
+  egui_handle: State<'_, tauri_egui::EguiPluginHandle>,
 ) -> Result<String, ()> {
   let (egui_app, rx) = Layout::new();
   let native_options = epi::NativeOptions {
@@ -23,7 +23,7 @@ async fn open_native_window(
     ..Default::default()
   };
 
-  egui_handle
+  let _window = egui_handle
     .create_window(
       "native-window".to_string(),
       Box::new(egui_app),
@@ -114,9 +114,7 @@ fn main() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![open_native_window])
     .setup(|app| {
-      let egui_plugin = tauri_egui::EguiPlugin::default();
-      app.manage(egui_plugin.handle(app.handle()));
-      app.wry_plugin(egui_plugin);
+      app.wry_plugin(tauri_egui::EguiPluginBuilder::new(app.handle()));
       Ok(())
     })
     .build(tauri::generate_context!("examples/basic/tauri.conf.json"))

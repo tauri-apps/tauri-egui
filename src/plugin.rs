@@ -2,16 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-use tauri_runtime::{window::WindowEvent, RunEvent, UserEvent};
+use tauri::utils::Theme;
+use tauri_runtime::{window::WindowEvent, Error, RunEvent, UserEvent};
+#[cfg(target_os = "linux")]
+use tauri_runtime_wry::wry::application::platform::unix::WindowExtUnix;
+#[cfg(windows)]
+use tauri_runtime_wry::wry::application::platform::windows::WindowExtWindows;
 use tauri_runtime_wry::{
+  center_window,
   wry::application::{
-    event::Event,
+    event::{Event, WindowEvent as TaoWindowEvent},
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
     menu::CustomMenuItem,
+    window::Fullscreen,
   },
-  EventLoopIterationContext, MenuEventListeners, Message, WebContextStore, WebviewId,
-  WebviewIdStore, WindowEventListeners, WindowEventWrapper, WindowMenuEventListeners,
-  WindowMessage,
+  CursorIconWrapper, EventLoopIterationContext, HasRawWindowHandle, MenuEventListeners, Message,
+  PhysicalPositionWrapper, PhysicalSizeWrapper, Plugin, PositionWrapper, RawWindowHandle,
+  SizeWrapper, WebContextStore, WebviewId, WindowEventListeners, WindowEventWrapper,
+  WindowMenuEventListeners, WindowMessage,
 };
 
 #[cfg(target_os = "linux")]
@@ -26,11 +34,106 @@ use std::{
   collections::HashMap,
   ops::Deref,
   rc::Rc,
-  sync::{mpsc::channel, Arc, Mutex, MutexGuard},
+  sync::{
+    mpsc::{channel, Receiver, SyncSender},
+    Arc, Mutex, MutexGuard,
+  },
 };
+
+pub mod window;
+use window::Window;
 
 static EGUI_ID: once_cell::sync::Lazy<Mutex<Option<WebviewId>>> =
   once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+pub struct CreateWindowPayload {
+  window_id: WebviewId,
+  label: String,
+  app: Box<dyn epi::App + Send>,
+  native_options: epi::NativeOptions,
+}
+
+pub struct EguiPlugin<T: UserEvent> {
+  pub(crate) proxy: EventLoopProxy<Message<T>>,
+  pub(crate) create_window_channel: (
+    SyncSender<CreateWindowPayload>,
+    Receiver<CreateWindowPayload>,
+  ),
+  pub(crate) windows: Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
+  pub(crate) is_focused: bool,
+}
+
+pub struct EguiPluginHandle<T: UserEvent = tauri::EventLoopMessage> {
+  proxy: EventLoopProxy<Message<T>>,
+  create_window_tx: SyncSender<CreateWindowPayload>,
+}
+
+impl<T: UserEvent> EguiPlugin<T> {
+  pub(crate) fn handle(&self) -> EguiPluginHandle<T> {
+    EguiPluginHandle {
+      proxy: self.proxy.clone(),
+      create_window_tx: self.create_window_channel.0.clone(),
+    }
+  }
+}
+
+impl<T: UserEvent> EguiPluginHandle<T> {
+  pub fn create_window(
+    &self,
+    label: String,
+    app: Box<dyn epi::App + Send>,
+    native_options: epi::NativeOptions,
+  ) -> tauri::Result<Window<T>> {
+    let window_id = rand::random();
+    let _ = self.create_window_tx.send(CreateWindowPayload {
+      window_id,
+      label,
+      app,
+      native_options,
+    });
+    // force the event loop to receive a new event
+    let _ = self.proxy.send_event(Message::Task(Box::new(move || {})));
+    Ok(Window {
+      id: window_id,
+      proxy: self.proxy.clone(),
+    })
+  }
+}
+
+impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
+  #[allow(dead_code)]
+  fn on_event(
+    &mut self,
+    event: &Event<Message<T>>,
+    event_loop: &EventLoopWindowTarget<Message<T>>,
+    proxy: &EventLoopProxy<Message<T>>,
+    control_flow: &mut ControlFlow,
+    context: EventLoopIterationContext<'_, T>,
+    web_context: &WebContextStore,
+  ) -> bool {
+    if let Ok(payload) = self.create_window_channel.1.try_recv() {
+      create_gl_window(
+        event_loop,
+        &context,
+        &self.windows,
+        payload.label,
+        payload.app,
+        payload.native_options,
+        payload.window_id,
+        proxy,
+      );
+    }
+    handle_gl_loop(
+      &self.windows,
+      event,
+      event_loop,
+      control_flow,
+      context,
+      web_context,
+      &mut self.is_focused,
+    )
+  }
+}
 
 #[allow(dead_code)]
 pub enum MaybeRc<T> {
@@ -117,13 +220,12 @@ pub struct WindowWrapper {
 #[allow(clippy::too_many_arguments)]
 pub fn create_gl_window<T: UserEvent>(
   event_loop: &EventLoopWindowTarget<Message<T>>,
-  webview_id_map: &WebviewIdStore,
+  context: &EventLoopIterationContext<'_, T>,
   windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
-  window_event_listeners: &WindowEventListeners,
-  menu_event_listeners: &MenuEventListeners,
   label: String,
   app: Box<dyn epi::App + Send>,
   native_options: epi::NativeOptions,
+  window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
 ) {
   let mut egui_id = EGUI_ID.lock().unwrap();
@@ -152,8 +254,9 @@ pub fn create_gl_window<T: UserEvent>(
       .unwrap()
   };
 
-  let window_id = rand::random();
-  webview_id_map.insert(gl_window.window().id(), window_id);
+  context
+    .webview_id_map
+    .insert(gl_window.window().id(), window_id);
   *egui_id = Some(window_id);
 
   let gl = unsafe { glow::Context::from_loader_function(|s| gl_window.get_proc_address(s)) };
@@ -188,12 +291,14 @@ pub fn create_gl_window<T: UserEvent>(
     app,
   );
 
-  window_event_listeners
+  context
+    .window_event_listeners
     .lock()
     .unwrap()
     .insert(window_id, Default::default());
 
-  menu_event_listeners
+  context
+    .menu_event_listeners
     .lock()
     .unwrap()
     .insert(window_id, WindowMenuEventListeners::default());
@@ -349,12 +454,12 @@ fn win_mac_gl_loop<T: UserEvent>(
     {
       *control_flow = if integration.should_quit() {
         *should_quit = true;
-        glutin::event_loop::ControlFlow::Wait
+        ControlFlow::Wait
       } else if needs_repaint {
         gl_window.window().request_redraw();
-        glutin::event_loop::ControlFlow::Poll
+        ControlFlow::Poll
       } else {
-        glutin::event_loop::ControlFlow::Wait
+        ControlFlow::Wait
       };
     }
 
@@ -362,8 +467,8 @@ fn win_mac_gl_loop<T: UserEvent>(
   };
 
   match event {
-    glutin::event::Event::RedrawEventsCleared if cfg!(windows) => redraw(),
-    glutin::event::Event::RedrawRequested(_) if !cfg!(windows) => redraw(),
+    Event::RedrawEventsCleared if cfg!(windows) => redraw(),
+    Event::RedrawRequested(_) if !cfg!(windows) => redraw(),
     _ => (),
   }
 }
@@ -375,12 +480,12 @@ fn linux_gl_loop<T: UserEvent>(
   event: &Event<Message<T>>,
 ) {
   let area = unsafe { glutin_window_context.context.raw_handle() };
-  if let glutin::event::Event::MainEventsCleared = event {
+  if let Event::MainEventsCleared = event {
     area.queue_render();
     match glutin_window_context.render_flow.load(Ordering::Relaxed) {
-      0 => *control_flow = glutin::event_loop::ControlFlow::Poll,
-      1 => *control_flow = glutin::event_loop::ControlFlow::Wait,
-      2 => *control_flow = glutin::event_loop::ControlFlow::Exit,
+      0 => *control_flow = ControlFlow::Poll,
+      1 => *control_flow = ControlFlow::Wait,
+      2 => *control_flow = ControlFlow::Exit,
       _ => unreachable!(),
     }
   }
@@ -400,12 +505,14 @@ pub fn handle_gl_loop<T: UserEvent>(
     callback,
     window_event_listeners,
     menu_event_listeners,
+    webview_id_map,
     ..
   } = context;
   let egui_id = *EGUI_ID.lock().unwrap();
   if let Some(id) = egui_id {
     let mut windows_lock = windows.lock().unwrap();
     let mut should_quit = false;
+
     if let Some(win) = windows_lock.get_mut(&id) {
       if let Some(glutin_window_context) = &mut win.inner {
         #[cfg(not(target_os = "linux"))]
@@ -419,88 +526,222 @@ pub fn handle_gl_loop<T: UserEvent>(
         #[cfg(target_os = "linux")]
         linux_gl_loop(control_flow, glutin_window_context, event);
 
-        if let glutin::event::Event::WindowEvent {
-          event, window_id, ..
-        } = event
-        {
-          let window_id = context.webview_id_map.get(&window_id);
-          if window_id == id {
-            match event {
-              glutin::event::WindowEvent::Focused(new_focused) => {
-                *is_focused = *new_focused;
-              }
-              glutin::event::WindowEvent::Resized(physical_size) => {
-                glutin_window_context.context.resize(*physical_size);
-              }
-              _ => (),
-            }
-
-            if let glutin::event::WindowEvent::CloseRequested = event {
-              drop(windows_lock);
-              on_close_requested(
-                callback,
-                window_id,
-                windows.clone(),
-                window_event_listeners,
-                menu_event_listeners.clone(),
-              );
-              if let Some(win) = windows.lock().unwrap().get_mut(&window_id) {
-                if let Some(glutin_window_context) = &mut win.inner {
-                  // marker
-                  let gl_window = &glutin_window_context.context;
-                  let mut integration = glutin_window_context.integration.borrow_mut();
-                  integration.on_event(&event);
-                  if integration.should_quit() {
-                    should_quit = true;
-                    *control_flow = glutin::event_loop::ControlFlow::Wait;
-                  }
-                  gl_window.window().request_redraw();
+        match event {
+          Event::WindowEvent {
+            event, window_id, ..
+          } => {
+            let window_id = webview_id_map.get(window_id);
+            if window_id == id {
+              match event {
+                TaoWindowEvent::Focused(new_focused) => {
+                  *is_focused = *new_focused;
                 }
+                TaoWindowEvent::Resized(physical_size) => {
+                  glutin_window_context.context.resize(*physical_size);
+                }
+                _ => (),
               }
-            } else {
-              // same as the `marker` above
-              let gl_window = &glutin_window_context.context;
-              let mut integration = glutin_window_context.integration.borrow_mut();
-              integration.on_event(&event);
-              if integration.should_quit() {
-                should_quit = true;
-                *control_flow = glutin::event_loop::ControlFlow::Wait;
-              }
-              gl_window.window().request_redraw();
-              // prevent deadlock on the `if should quit` below
-              drop(integration);
-              drop(windows_lock);
-            }
 
-            {
-              let windows_lock = windows.lock().unwrap();
-              if let Some(label) = windows_lock.get(&window_id).map(|w| &w.label) {
-                if let Some(event) = WindowEventWrapper::from(event).0 {
-                  let label = label.clone();
-                  drop(windows_lock);
-                  callback(RunEvent::WindowEvent {
-                    label: label.clone(),
-                    event: event.clone(),
-                  });
-                  for handler in window_event_listeners
-                    .lock()
-                    .unwrap()
-                    .get(&window_id)
-                    .unwrap()
-                    .lock()
-                    .unwrap()
-                    .values()
-                  {
-                    handler(&event);
+              if let TaoWindowEvent::CloseRequested = event {
+                drop(windows_lock);
+                on_close_requested(
+                  callback,
+                  window_id,
+                  windows.clone(),
+                  window_event_listeners,
+                  menu_event_listeners.clone(),
+                );
+                if let Some(win) = windows.lock().unwrap().get_mut(&window_id) {
+                  if let Some(glutin_window_context) = &mut win.inner {
+                    // marker
+                    let gl_window = &glutin_window_context.context;
+                    let mut integration = glutin_window_context.integration.borrow_mut();
+                    integration.on_event(event);
+                    if integration.should_quit() {
+                      should_quit = true;
+                      *control_flow = ControlFlow::Wait;
+                    }
+                    gl_window.window().request_redraw();
                   }
                 }
+              } else {
+                // same as the `marker` above
+                let gl_window = &glutin_window_context.context;
+                let mut integration = glutin_window_context.integration.borrow_mut();
+                integration.on_event(event);
+                if integration.should_quit() {
+                  should_quit = true;
+                  *control_flow = ControlFlow::Wait;
+                }
+                gl_window.window().request_redraw();
+                // prevent deadlock on the `if should quit` below
+                drop(integration);
+                drop(windows_lock);
               }
+
+              {
+                let windows_lock = windows.lock().unwrap();
+                if let Some(label) = windows_lock.get(&window_id).map(|w| &w.label) {
+                  if let Some(event) = WindowEventWrapper::from(event).0 {
+                    let label = label.clone();
+                    drop(windows_lock);
+                    callback(RunEvent::WindowEvent {
+                      label,
+                      event: event.clone(),
+                    });
+                    let shared_listeners = context
+                      .window_event_listeners
+                      .lock()
+                      .unwrap()
+                      .get(&window_id)
+                      .unwrap()
+                      .clone();
+                    let listeners = shared_listeners.lock().unwrap();
+                    let handlers = listeners.values();
+                    for handler in handlers {
+                      handler(&event);
+                    }
+                  }
+                }
+              }
+              prevent_default = true;
             }
-            prevent_default = true;
           }
-        } else if should_quit {
-          // prevent deadlock on the `if should quit` below
-          drop(windows_lock);
+
+          Event::UserEvent(Message::Window(window_id, message)) => {
+            if window_id == &id {
+              let window = glutin_window_context.context.window();
+              match message {
+                WindowMessage::ScaleFactor(tx) => tx.send(window.scale_factor()).unwrap(),
+                WindowMessage::InnerPosition(tx) => tx
+                  .send(
+                    window
+                      .inner_position()
+                      .map(|p| PhysicalPositionWrapper(p).into())
+                      .map_err(|_| Error::FailedToSendMessage),
+                  )
+                  .unwrap(),
+                WindowMessage::OuterPosition(tx) => tx
+                  .send(
+                    window
+                      .outer_position()
+                      .map(|p| PhysicalPositionWrapper(p).into())
+                      .map_err(|_| Error::FailedToSendMessage),
+                  )
+                  .unwrap(),
+                WindowMessage::InnerSize(tx) => tx
+                  .send(PhysicalSizeWrapper(window.inner_size()).into())
+                  .unwrap(),
+                WindowMessage::OuterSize(tx) => tx
+                  .send(PhysicalSizeWrapper(window.outer_size()).into())
+                  .unwrap(),
+                WindowMessage::IsFullscreen(tx) => tx.send(window.fullscreen().is_some()).unwrap(),
+                WindowMessage::IsMaximized(tx) => tx.send(window.is_maximized()).unwrap(),
+                WindowMessage::IsDecorated(tx) => tx.send(window.is_decorated()).unwrap(),
+                WindowMessage::IsResizable(tx) => tx.send(window.is_resizable()).unwrap(),
+                WindowMessage::IsVisible(tx) => tx.send(window.is_visible()).unwrap(),
+                WindowMessage::IsMenuVisible(tx) => tx.send(window.is_menu_visible()).unwrap(),
+                WindowMessage::CurrentMonitor(tx) => tx.send(window.current_monitor()).unwrap(),
+                WindowMessage::PrimaryMonitor(tx) => tx.send(window.primary_monitor()).unwrap(),
+                WindowMessage::AvailableMonitors(tx) => {
+                  tx.send(window.available_monitors().collect()).unwrap()
+                }
+                WindowMessage::RawWindowHandle(tx) => tx
+                  .send(RawWindowHandle(window.raw_window_handle()))
+                  .unwrap(),
+                WindowMessage::Theme(tx) => {
+                  #[cfg(any(windows, target_os = "macos"))]
+                  tx.send(tauri_runtime_wry::map_theme(&window.theme()))
+                    .unwrap();
+                  #[cfg(not(windows))]
+                  tx.send(Theme::Light).unwrap();
+                }
+                // Setters
+                WindowMessage::Center => {
+                  let _ = center_window(window, window.inner_size());
+                }
+                WindowMessage::RequestUserAttention(request_type) => {
+                  window.request_user_attention(request_type.as_ref().map(|r| r.0));
+                }
+                WindowMessage::SetResizable(resizable) => window.set_resizable(*resizable),
+                WindowMessage::SetTitle(title) => window.set_title(title),
+                WindowMessage::Maximize => window.set_maximized(true),
+                WindowMessage::Unmaximize => window.set_maximized(false),
+                WindowMessage::Minimize => window.set_minimized(true),
+                WindowMessage::Unminimize => window.set_minimized(false),
+                WindowMessage::ShowMenu => window.show_menu(),
+                WindowMessage::HideMenu => window.hide_menu(),
+                WindowMessage::Show => window.set_visible(true),
+                WindowMessage::Hide => window.set_visible(false),
+                WindowMessage::Close => {
+                  on_window_close(*window_id, windows_lock, menu_event_listeners.clone());
+                }
+                WindowMessage::SetDecorations(decorations) => window.set_decorations(*decorations),
+                WindowMessage::SetAlwaysOnTop(always_on_top) => {
+                  window.set_always_on_top(*always_on_top);
+                }
+                WindowMessage::SetSize(size) => {
+                  window.set_inner_size(SizeWrapper::from(*size).0);
+                }
+                WindowMessage::SetMinSize(size) => {
+                  window.set_min_inner_size(size.map(|s| SizeWrapper::from(s).0));
+                }
+                WindowMessage::SetMaxSize(size) => {
+                  window.set_max_inner_size(size.map(|s| SizeWrapper::from(s).0));
+                }
+                WindowMessage::SetPosition(position) => {
+                  window.set_outer_position(PositionWrapper::from(*position).0)
+                }
+                WindowMessage::SetFullscreen(fullscreen) => {
+                  if *fullscreen {
+                    window.set_fullscreen(Some(Fullscreen::Borderless(None)))
+                  } else {
+                    window.set_fullscreen(None)
+                  }
+                }
+                WindowMessage::SetFocus => {
+                  window.set_focus();
+                }
+                WindowMessage::SetIcon(icon) => {
+                  window.set_window_icon(Some(icon.clone()));
+                }
+                #[allow(unused_variables)]
+                WindowMessage::SetSkipTaskbar(skip) => {
+                  #[cfg(any(windows, target_os = "linux"))]
+                  window.set_skip_taskbar(*skip);
+                }
+                WindowMessage::SetCursorGrab(grab) => {
+                  let _ = window.set_cursor_grab(*grab);
+                }
+                WindowMessage::SetCursorVisible(visible) => {
+                  window.set_cursor_visible(*visible);
+                }
+                WindowMessage::SetCursorIcon(icon) => {
+                  window.set_cursor_icon(CursorIconWrapper::from(*icon).0);
+                }
+                WindowMessage::SetCursorPosition(position) => {
+                  let _ = window.set_cursor_position(PositionWrapper::from(*position).0);
+                }
+                WindowMessage::DragWindow => {
+                  let _ = window.drag_window();
+                }
+                WindowMessage::UpdateMenuItem(_id, _update) => {
+                  // TODO
+                }
+                WindowMessage::RequestRedraw => {
+                  window.request_redraw();
+                }
+                _ => (),
+              }
+            }
+          }
+
+          _ => {
+            if should_quit {
+              // prevent deadlock on the `if should quit` below
+              drop(windows_lock);
+            }
+          }
         }
       }
     }
@@ -525,15 +766,15 @@ fn on_close_requested<'a, T: UserEvent>(
   if let Some(w) = windows_guard.get(&window_id) {
     let label = w.label.clone();
     drop(windows_guard);
-    for handler in window_event_listeners
+    let shared_listeners = window_event_listeners
       .lock()
       .unwrap()
       .get(&window_id)
       .unwrap()
-      .lock()
-      .unwrap()
-      .values()
-    {
+      .clone();
+    let listeners = shared_listeners.lock().unwrap();
+    let handlers = listeners.values();
+    for handler in handlers {
       handler(&WindowEvent::CloseRequested {
         signal_tx: tx.clone(),
       });
