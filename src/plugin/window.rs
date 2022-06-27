@@ -1,28 +1,37 @@
+use super::Context;
 use tauri::{
   CursorIcon, Icon, Monitor, PhysicalPosition, PhysicalSize, Position, Result, Size, Theme,
   UserAttentionType,
 };
 use tauri_runtime::{Error, UserEvent};
-use tauri_runtime_wry::{
-  wry::application::event_loop::EventLoopProxy, Message, MonitorHandleWrapper, WebviewId,
-  WindowMessage, WryIcon,
-};
+use tauri_runtime_wry::{Message, MonitorHandleWrapper, WebviewId, WindowMessage, WryIcon};
 
 use std::sync::mpsc::channel;
 
 pub struct Window<T: UserEvent> {
   pub(crate) id: WebviewId,
-  pub(crate) proxy: EventLoopProxy<Message<T>>,
+  pub(crate) context: Context<T>,
 }
 
 macro_rules! window_getter {
   ($self: ident, $message: expr) => {{
     let (tx, rx) = channel();
-    $self
-      .proxy
-      .send_event(Message::Window($self.id, $message(tx)))
-      .map_err(|_| Error::EventLoopClosed)
-      .map_err(tauri::Error::from)?;
+
+    $self.context.inner.run_threaded(|main_thread| {
+      let message = Message::Window($self.id, $message(tx));
+      if main_thread.is_some() {
+        super::handle_user_message(&message, &$self.context.main_thread.windows);
+        Ok(())
+      } else {
+        $self
+          .context
+          .inner
+          .proxy
+          .send_event(message)
+          .map_err(|_| Error::EventLoopClosed)
+          .map_err(tauri::Error::from)
+      }
+    })?;
     rx.recv()
       .map_err(|_| Error::FailedToReceiveMessage)
       .map_err(tauri::Error::from)
@@ -132,10 +141,20 @@ impl<T: UserEvent> Window<T> {
 /// Window setters and actions.
 impl<T: UserEvent> Window<T> {
   fn send_event(&self, message: WindowMessage) -> Result<()> {
-    self
-      .proxy
-      .send_event(Message::Window(self.id, message))
-      .map_err(|_| Error::EventLoopClosed.into())
+    self.context.inner.run_threaded(|main_thread| {
+      let message = Message::Window(self.id, message);
+      if main_thread.is_some() {
+        super::handle_user_message(&message, &self.context.main_thread.windows);
+        Ok(())
+      } else {
+        self
+          .context
+          .inner
+          .proxy
+          .send_event(message)
+          .map_err(|_| Error::EventLoopClosed.into())
+      }
+    })
   }
 
   /// Centers the window.

@@ -6,7 +6,7 @@ use std::sync::mpsc::sync_channel;
 
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_runtime::UserEvent;
-use tauri_runtime_wry::{wry::application::event_loop::EventLoopProxy, Message, PluginBuilder};
+use tauri_runtime_wry::{Context, PluginBuilder};
 
 pub use egui;
 pub use epi;
@@ -28,11 +28,15 @@ impl<R: Runtime> EguiPluginBuilder<R> {
 impl<T: UserEvent, R: Runtime> PluginBuilder<T> for EguiPluginBuilder<R> {
   type Plugin = EguiPlugin<T>;
 
-  fn build(self, proxy: EventLoopProxy<Message<T>>) -> Self::Plugin {
+  fn build(self, context: Context<T>) -> Self::Plugin {
     let plugin = EguiPlugin {
-      proxy,
+      context: plugin::Context {
+        inner: context,
+        main_thread: plugin::MainThreadContext {
+          windows: Default::default(),
+        },
+      },
       create_window_channel: sync_channel(1),
-      windows: Default::default(),
       is_focused: false,
     };
     self.app.manage(plugin.handle());
