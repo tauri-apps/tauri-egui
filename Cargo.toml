@@ -3,15 +3,10 @@ name = "tauri-egui"
 version = "0.1.0"
 edition = "2021"
 
-[patch.crates-io]
-tauri = { path = "../tauri/core/tauri" }
-tauri-runtime = { path = "../tauri/core/tauri-runtime/" }
-tauri-runtime-wry = { path = "../tauri/core/tauri-runtime-wry/" }
-
 [dependencies]
-tauri = "1.0"
-tauri-runtime = "0.9"
-tauri-runtime-wry = "0.9"
+tauri = "1.0.1"
+tauri-runtime = "0.10"
+tauri-runtime-wry = "0.10"
 egui = { git = "https://github.com/wusyong/egui", branch = "tao" }
 epi = { git = "https://github.com/wusyong/egui", branch = "tao" }
 egui-tao = { git = "https://github.com/wusyong/egui", branch = "tao", features = ["epi"] }
@@ -21,7 +16,7 @@ glow = "0.11"
 rand = "0.8"
 
 [dev-dependencies]
-tauri = { version = "1.0", features = ["dialog-message"] }
+tauri = { version = "1.0.1", features = ["dialog-message"] }
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
 gtk = { version = "0.15", features = [ "v3_20" ] }
