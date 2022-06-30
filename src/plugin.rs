@@ -16,10 +16,10 @@ use tauri_runtime_wry::{
     menu::CustomMenuItem,
     window::Fullscreen,
   },
-  Context as WryContext, CursorIconWrapper, EventLoopIterationContext, HasRawWindowHandle,
-  MenuEventListeners, Message, PhysicalPositionWrapper, PhysicalSizeWrapper, Plugin,
-  PositionWrapper, RawWindowHandle, SizeWrapper, WebContextStore, WebviewId, WebviewIdStore,
-  WindowEventListeners, WindowEventWrapper, WindowMenuEventListeners, WindowMessage,
+  Context as WryContext, CursorIconWrapper, EventLoopIterationContext, HasRawWindowHandle, Message,
+  PhysicalPositionWrapper, PhysicalSizeWrapper, Plugin, PositionWrapper, RawWindowHandle,
+  SizeWrapper, WebContextStore, WebviewId, WebviewIdStore, WindowEventListeners,
+  WindowEventWrapper, WindowMenuEventListeners, WindowMessage,
 };
 
 #[cfg(target_os = "linux")]
@@ -112,8 +112,6 @@ impl<T: UserEvent> EguiPluginHandle<T> {
         create_gl_window(
           &main_thread.window_target,
           &self.context.inner.webview_id_map,
-          &self.context.inner.window_event_listeners,
-          &self.context.inner.menu_event_listeners,
           &self.context.main_thread.windows,
           payload.label,
           payload.app,
@@ -153,8 +151,6 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
       create_gl_window(
         event_loop,
         &context.webview_id_map,
-        context.window_event_listeners,
-        context.menu_event_listeners,
         &self.context.main_thread.windows,
         payload.label,
         payload.app,
@@ -255,14 +251,14 @@ pub struct WindowWrapper {
   label: String,
   inner: Option<Box<GlutinWindowContext>>,
   menu_items: Option<HashMap<u16, CustomMenuItem>>,
+  window_event_listeners: WindowEventListeners,
+  menu_event_listeners: WindowMenuEventListeners,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn create_gl_window<T: UserEvent>(
   event_loop: &EventLoopWindowTarget<Message<T>>,
   webview_id_map: &WebviewIdStore,
-  window_event_listeners: &WindowEventListeners,
-  menu_event_listeners: &MenuEventListeners,
   windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
   label: String,
   app: Box<dyn epi::App + Send>,
@@ -317,16 +313,6 @@ pub fn create_gl_window<T: UserEvent>(
     persistence,
     app,
   );
-
-  window_event_listeners
-    .lock()
-    .unwrap()
-    .insert(window_id, Default::default());
-
-  menu_event_listeners
-    .lock()
-    .unwrap()
-    .insert(window_id, WindowMenuEventListeners::default());
 
   #[cfg(not(target_os = "linux"))]
   {
@@ -418,6 +404,8 @@ pub fn create_gl_window<T: UserEvent>(
           render_flow,
         })),
         menu_items: Default::default(),
+        window_event_listeners: Default::default(),
+        menu_event_listeners: Default::default(),
       },
     );
   }
@@ -528,8 +516,6 @@ pub fn handle_gl_loop<T: UserEvent>(
   let mut prevent_default = false;
   let EventLoopIterationContext {
     callback,
-    window_event_listeners,
-    menu_event_listeners,
     webview_id_map,
     ..
   } = context;
@@ -558,10 +544,15 @@ pub fn handle_gl_loop<T: UserEvent>(
         event, window_id, ..
       } => {
         let window_id = webview_id_map.get(window_id);
-        if let Some((label, glutin_window_context)) = windows_lock
-          .get_mut(&window_id)
-          .map(|win| (&win.label, &mut win.inner))
-        {
+
+        if let TaoWindowEvent::Destroyed = event {
+          windows_lock.remove(&window_id);
+        }
+
+        if let Some(window) = windows_lock.get_mut(&window_id) {
+          let label = &window.label;
+          let glutin_window_context = &mut window.inner;
+          let window_event_listeners = &window.window_event_listeners;
           match event {
             TaoWindowEvent::Focused(new_focused) => {
               *is_focused = *new_focused;
@@ -571,17 +562,14 @@ pub fn handle_gl_loop<T: UserEvent>(
                 glutin_window_context.context.resize(*physical_size);
               }
             }
+            TaoWindowEvent::CloseRequested => {
+              on_close_requested(
+                callback,
+                (label, glutin_window_context),
+                window_event_listeners,
+              );
+            }
             _ => (),
-          }
-
-          if let TaoWindowEvent::CloseRequested = event {
-            on_close_requested(
-              callback,
-              window_id,
-              (label, glutin_window_context),
-              window_event_listeners,
-              menu_event_listeners.clone(),
-            );
           }
 
           let mut should_quit = false;
@@ -596,28 +584,18 @@ pub fn handle_gl_loop<T: UserEvent>(
             gl_window.window().request_redraw();
           }
           if should_quit {
-            // TODO use on_window_close
-            *glutin_window_context = None;
-            menu_event_listeners.lock().unwrap().remove(&window_id);
-          }
-
-          {
-            if let Some(label) = windows_lock.get(&window_id).map(|w| &w.label) {
+            on_window_close(glutin_window_context);
+          } else {
+            if let Some(window) = windows_lock.get(&window_id) {
               if let Some(event) = WindowEventWrapper::from(event).0 {
-                let label = label.clone();
+                let label = window.label.clone();
+                let window_event_listeners = window.window_event_listeners.clone();
                 drop(windows_lock);
                 callback(RunEvent::WindowEvent {
                   label,
                   event: event.clone(),
                 });
-                let shared_listeners = context
-                  .window_event_listeners
-                  .lock()
-                  .unwrap()
-                  .get(&window_id)
-                  .unwrap()
-                  .clone();
-                let listeners = shared_listeners.lock().unwrap();
+                let listeners = window_event_listeners.lock().unwrap();
                 let handlers = listeners.values();
                 for handler in handlers {
                   handler(&event);
@@ -625,6 +603,7 @@ pub fn handle_gl_loop<T: UserEvent>(
               }
             }
           }
+
           prevent_default = true;
         }
       }
@@ -786,19 +765,11 @@ pub(crate) fn handle_user_message<T: UserEvent>(
 
 fn on_close_requested<'a, T: UserEvent>(
   callback: &'a mut (dyn FnMut(RunEvent<T>) + 'static),
-  window_id: WebviewId,
   (label, glutin_window_context): (&str, &mut Option<Box<GlutinWindowContext>>),
   window_event_listeners: &WindowEventListeners,
-  menu_event_listeners: MenuEventListeners,
 ) {
   let (tx, rx) = channel();
-  let shared_listeners = window_event_listeners
-    .lock()
-    .unwrap()
-    .get(&window_id)
-    .unwrap()
-    .clone();
-  let listeners = shared_listeners.lock().unwrap();
+  let listeners = window_event_listeners.lock().unwrap();
   let handlers = listeners.values();
   for handler in handlers {
     handler(&WindowEvent::CloseRequested {
@@ -811,17 +782,12 @@ fn on_close_requested<'a, T: UserEvent>(
   });
   if let Ok(true) = rx.try_recv() {
   } else {
-    on_window_close(window_id, glutin_window_context, menu_event_listeners);
+    on_window_close(glutin_window_context);
   }
 }
 
-fn on_window_close(
-  window_id: WebviewId,
-  glutin_window_context: &mut Option<Box<GlutinWindowContext>>,
-  menu_event_listeners: MenuEventListeners,
-) {
+fn on_window_close(glutin_window_context: &mut Option<Box<GlutinWindowContext>>) {
   // Destrooy GL context if its a GLWindow
-  menu_event_listeners.lock().unwrap().remove(&window_id);
   if let Some(glutin_window_context) = glutin_window_context.take() {
     #[cfg(not(target_os = "linux"))]
     {
