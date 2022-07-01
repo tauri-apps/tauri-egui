@@ -4,6 +4,8 @@
 
 use tauri::utils::Theme;
 use tauri_runtime::{window::WindowEvent, Error, RunEvent, UserEvent};
+#[cfg(target_os = "macos")]
+use tauri_runtime_wry::wry::application::platform::macos::WindowExtMacOS;
 #[cfg(target_os = "linux")]
 use tauri_runtime_wry::wry::application::platform::unix::WindowExtUnix;
 #[cfg(windows)]
@@ -327,6 +329,8 @@ pub fn create_gl_window<T: UserEvent>(
           integration: MaybeRcCell::new(integration),
         })),
         menu_items: Default::default(),
+        menu_event_listeners: Default::default(),
+        window_event_listeners: Default::default(),
       },
     );
   }
@@ -417,8 +421,7 @@ fn win_mac_gl_loop<T: UserEvent>(
   glutin_window_context: &mut GlutinWindowContext,
   event: &Event<Message<T>>,
   is_focused: bool,
-  should_quit: &mut bool,
-) {
+) -> bool {
   let mut redraw = || {
     let gl_window = &glutin_window_context.context;
     let gl = &glutin_window_context.glow_context;
@@ -464,9 +467,11 @@ fn win_mac_gl_loop<T: UserEvent>(
       gl_window.swap_buffers().unwrap();
     }
 
+    let mut should_quit = false;
+
     {
       *control_flow = if integration.should_quit() {
-        *should_quit = true;
+        should_quit = true;
         ControlFlow::Wait
       } else if needs_repaint {
         gl_window.window().request_redraw();
@@ -477,12 +482,14 @@ fn win_mac_gl_loop<T: UserEvent>(
     }
 
     integration.maybe_autosave(gl_window.window());
+
+    should_quit
   };
 
   match event {
     Event::RedrawEventsCleared if cfg!(windows) => redraw(),
     Event::RedrawRequested(_) if !cfg!(windows) => redraw(),
-    _ => (),
+    _ => false,
   }
 }
 
@@ -524,16 +531,15 @@ pub fn handle_gl_loop<T: UserEvent>(
     let mut windows_lock = windows.lock().unwrap();
 
     let iter = windows_lock.values_mut();
+
+    let mut should_quit = false;
+
     for win in iter {
       if let Some(glutin_window_context) = &mut win.inner {
         #[cfg(not(target_os = "linux"))]
-        win_mac_gl_loop(
-          control_flow,
-          glutin_window_context,
-          &event,
-          *is_focused,
-          &mut should_quit,
-        );
+        {
+          should_quit = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
+        }
         #[cfg(target_os = "linux")]
         linux_gl_loop(control_flow, glutin_window_context, event);
       }
@@ -572,7 +578,6 @@ pub fn handle_gl_loop<T: UserEvent>(
             _ => (),
           }
 
-          let mut should_quit = false;
           if let Some(glutin_window_context) = glutin_window_context.as_ref() {
             let gl_window = &glutin_window_context.context;
             let mut integration = glutin_window_context.integration.borrow_mut();
