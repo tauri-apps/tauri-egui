@@ -93,6 +93,36 @@ impl<T: UserEvent> EguiPlugin<T> {
 }
 
 impl<T: UserEvent> EguiPluginHandle<T> {
+  /// Fetch a single window by its label.
+  pub fn get_window(&self, label: &str) -> Option<Window<T>> {
+    let windows = self.context.main_thread.windows.lock().unwrap();
+    for (id, w) in &*windows {
+      if w.label == label {
+        return Some(Window {
+          id: *id,
+          context: self.context.clone(),
+        });
+      }
+    }
+    None
+  }
+
+  /// Fetch all managed windows.
+  pub fn windows(&self) -> HashMap<String, Window<T>> {
+    let windows = self.context.main_thread.windows.lock().unwrap();
+    let mut list = HashMap::new();
+    for (id, w) in &*windows {
+      list.insert(
+        w.label.clone(),
+        Window {
+          id: *id,
+          context: self.context.clone(),
+        },
+      );
+    }
+    list
+  }
+
   pub fn create_window(
     &self,
     label: String,
