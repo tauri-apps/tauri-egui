@@ -298,6 +298,15 @@ pub fn create_gl_window<T: UserEvent>(
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
 ) {
+  if let Some(window) = windows
+    .lock()
+    .expect("poisoned window collection")
+    .values_mut()
+    .next()
+  {
+    on_window_close(&mut window.inner);
+  }
+
   let persistence = egui_tao::epi::Persistence::from_app_name(app.name());
   let window_builder = egui_tao::epi::window_builder(&native_options, &None).with_title(app.name());
   let gl_window = unsafe {
@@ -348,7 +357,7 @@ pub fn create_gl_window<T: UserEvent>(
 
   #[cfg(not(target_os = "linux"))]
   {
-    windows.lock().expect("poisoned webview collection").insert(
+    windows.lock().expect("poisoned window collection").insert(
       window_id,
       WindowWrapper {
         label,
@@ -426,7 +435,7 @@ pub fn create_gl_window<T: UserEvent>(
       gtk::Inhibit(false)
     });
 
-    windows.lock().expect("poisoned webview collection").insert(
+    windows.lock().expect("poisoned window collection").insert(
       window_id,
       WindowWrapper {
         label,
@@ -660,139 +669,136 @@ pub(crate) fn handle_user_message<T: UserEvent>(
   windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
 ) {
   if let Message::Window(window_id, message) = message {
-    if let Some(Some(glutin_window_context)) = windows
+    if let Some(glutin_window_context_opt) = windows
       .lock()
       .unwrap()
       .get_mut(window_id)
       .map(|win| &mut win.inner)
     {
-      let window = glutin_window_context.context.window();
-      match message {
-        WindowMessage::ScaleFactor(tx) => tx.send(window.scale_factor()).unwrap(),
-        WindowMessage::InnerPosition(tx) => tx
-          .send(
-            window
-              .inner_position()
-              .map(|p| PhysicalPositionWrapper(p).into())
-              .map_err(|_| Error::FailedToSendMessage),
-          )
-          .unwrap(),
-        WindowMessage::OuterPosition(tx) => tx
-          .send(
-            window
-              .outer_position()
-              .map(|p| PhysicalPositionWrapper(p).into())
-              .map_err(|_| Error::FailedToSendMessage),
-          )
-          .unwrap(),
-        WindowMessage::InnerSize(tx) => tx
-          .send(PhysicalSizeWrapper(window.inner_size()).into())
-          .unwrap(),
-        WindowMessage::OuterSize(tx) => tx
-          .send(PhysicalSizeWrapper(window.outer_size()).into())
-          .unwrap(),
-        WindowMessage::IsFullscreen(tx) => tx.send(window.fullscreen().is_some()).unwrap(),
-        WindowMessage::IsMaximized(tx) => tx.send(window.is_maximized()).unwrap(),
-        WindowMessage::IsDecorated(tx) => tx.send(window.is_decorated()).unwrap(),
-        WindowMessage::IsResizable(tx) => tx.send(window.is_resizable()).unwrap(),
-        WindowMessage::IsVisible(tx) => tx.send(window.is_visible()).unwrap(),
-        WindowMessage::IsMenuVisible(tx) => tx.send(window.is_menu_visible()).unwrap(),
-        WindowMessage::CurrentMonitor(tx) => tx.send(window.current_monitor()).unwrap(),
-        WindowMessage::PrimaryMonitor(tx) => tx.send(window.primary_monitor()).unwrap(),
-        WindowMessage::AvailableMonitors(tx) => {
-          tx.send(window.available_monitors().collect()).unwrap()
-        }
-        WindowMessage::RawWindowHandle(tx) => tx
-          .send(RawWindowHandle(window.raw_window_handle()))
-          .unwrap(),
-        WindowMessage::Theme(tx) => {
-          #[cfg(any(windows, target_os = "macos"))]
-          tx.send(tauri_runtime_wry::map_theme(&window.theme()))
-            .unwrap();
-          #[cfg(not(windows))]
-          tx.send(Theme::Light).unwrap();
-        }
-        // Setters
-        WindowMessage::Center => {
-          let _ = center_window(window, window.inner_size());
-        }
-        WindowMessage::RequestUserAttention(request_type) => {
-          window.request_user_attention(request_type.as_ref().map(|r| r.0));
-        }
-        WindowMessage::SetResizable(resizable) => window.set_resizable(*resizable),
-        WindowMessage::SetTitle(title) => window.set_title(title),
-        WindowMessage::Maximize => window.set_maximized(true),
-        WindowMessage::Unmaximize => window.set_maximized(false),
-        WindowMessage::Minimize => window.set_minimized(true),
-        WindowMessage::Unminimize => window.set_minimized(false),
-        WindowMessage::ShowMenu => window.show_menu(),
-        WindowMessage::HideMenu => window.hide_menu(),
-        WindowMessage::Show => window.set_visible(true),
-        WindowMessage::Hide => window.set_visible(false),
-        WindowMessage::Close => {
-          // TODO
-          /*on_window_close(
-            *window_id,
-            glutin_window_context,
-            menu_event_listeners.clone(),
-          );*/
-        }
-        WindowMessage::SetDecorations(decorations) => window.set_decorations(*decorations),
-        WindowMessage::SetAlwaysOnTop(always_on_top) => {
-          window.set_always_on_top(*always_on_top);
-        }
-        WindowMessage::SetSize(size) => {
-          window.set_inner_size(SizeWrapper::from(*size).0);
-        }
-        WindowMessage::SetMinSize(size) => {
-          window.set_min_inner_size(size.map(|s| SizeWrapper::from(s).0));
-        }
-        WindowMessage::SetMaxSize(size) => {
-          window.set_max_inner_size(size.map(|s| SizeWrapper::from(s).0));
-        }
-        WindowMessage::SetPosition(position) => {
-          window.set_outer_position(PositionWrapper::from(*position).0)
-        }
-        WindowMessage::SetFullscreen(fullscreen) => {
-          if *fullscreen {
-            window.set_fullscreen(Some(Fullscreen::Borderless(None)))
-          } else {
-            window.set_fullscreen(None)
+      if let Some(glutin_window_context) = glutin_window_context_opt {
+        let window = glutin_window_context.context.window();
+        match message {
+          WindowMessage::ScaleFactor(tx) => tx.send(window.scale_factor()).unwrap(),
+          WindowMessage::InnerPosition(tx) => tx
+            .send(
+              window
+                .inner_position()
+                .map(|p| PhysicalPositionWrapper(p).into())
+                .map_err(|_| Error::FailedToSendMessage),
+            )
+            .unwrap(),
+          WindowMessage::OuterPosition(tx) => tx
+            .send(
+              window
+                .outer_position()
+                .map(|p| PhysicalPositionWrapper(p).into())
+                .map_err(|_| Error::FailedToSendMessage),
+            )
+            .unwrap(),
+          WindowMessage::InnerSize(tx) => tx
+            .send(PhysicalSizeWrapper(window.inner_size()).into())
+            .unwrap(),
+          WindowMessage::OuterSize(tx) => tx
+            .send(PhysicalSizeWrapper(window.outer_size()).into())
+            .unwrap(),
+          WindowMessage::IsFullscreen(tx) => tx.send(window.fullscreen().is_some()).unwrap(),
+          WindowMessage::IsMaximized(tx) => tx.send(window.is_maximized()).unwrap(),
+          WindowMessage::IsDecorated(tx) => tx.send(window.is_decorated()).unwrap(),
+          WindowMessage::IsResizable(tx) => tx.send(window.is_resizable()).unwrap(),
+          WindowMessage::IsVisible(tx) => tx.send(window.is_visible()).unwrap(),
+          WindowMessage::IsMenuVisible(tx) => tx.send(window.is_menu_visible()).unwrap(),
+          WindowMessage::CurrentMonitor(tx) => tx.send(window.current_monitor()).unwrap(),
+          WindowMessage::PrimaryMonitor(tx) => tx.send(window.primary_monitor()).unwrap(),
+          WindowMessage::AvailableMonitors(tx) => {
+            tx.send(window.available_monitors().collect()).unwrap()
           }
+          WindowMessage::RawWindowHandle(tx) => tx
+            .send(RawWindowHandle(window.raw_window_handle()))
+            .unwrap(),
+          WindowMessage::Theme(tx) => {
+            #[cfg(any(windows, target_os = "macos"))]
+            tx.send(tauri_runtime_wry::map_theme(&window.theme()))
+              .unwrap();
+            #[cfg(not(windows))]
+            tx.send(Theme::Light).unwrap();
+          }
+          // Setters
+          WindowMessage::Center => {
+            let _ = center_window(window, window.inner_size());
+          }
+          WindowMessage::RequestUserAttention(request_type) => {
+            window.request_user_attention(request_type.as_ref().map(|r| r.0));
+          }
+          WindowMessage::SetResizable(resizable) => window.set_resizable(*resizable),
+          WindowMessage::SetTitle(title) => window.set_title(title),
+          WindowMessage::Maximize => window.set_maximized(true),
+          WindowMessage::Unmaximize => window.set_maximized(false),
+          WindowMessage::Minimize => window.set_minimized(true),
+          WindowMessage::Unminimize => window.set_minimized(false),
+          WindowMessage::ShowMenu => window.show_menu(),
+          WindowMessage::HideMenu => window.hide_menu(),
+          WindowMessage::Show => window.set_visible(true),
+          WindowMessage::Hide => window.set_visible(false),
+          WindowMessage::Close => {
+            on_window_close(glutin_window_context_opt);
+          }
+          WindowMessage::SetDecorations(decorations) => window.set_decorations(*decorations),
+          WindowMessage::SetAlwaysOnTop(always_on_top) => {
+            window.set_always_on_top(*always_on_top);
+          }
+          WindowMessage::SetSize(size) => {
+            window.set_inner_size(SizeWrapper::from(*size).0);
+          }
+          WindowMessage::SetMinSize(size) => {
+            window.set_min_inner_size(size.map(|s| SizeWrapper::from(s).0));
+          }
+          WindowMessage::SetMaxSize(size) => {
+            window.set_max_inner_size(size.map(|s| SizeWrapper::from(s).0));
+          }
+          WindowMessage::SetPosition(position) => {
+            window.set_outer_position(PositionWrapper::from(*position).0)
+          }
+          WindowMessage::SetFullscreen(fullscreen) => {
+            if *fullscreen {
+              window.set_fullscreen(Some(Fullscreen::Borderless(None)))
+            } else {
+              window.set_fullscreen(None)
+            }
+          }
+          WindowMessage::SetFocus => {
+            window.set_focus();
+          }
+          WindowMessage::SetIcon(icon) => {
+            window.set_window_icon(Some(icon.clone()));
+          }
+          #[allow(unused_variables)]
+          WindowMessage::SetSkipTaskbar(skip) => {
+            #[cfg(any(windows, target_os = "linux"))]
+            window.set_skip_taskbar(*skip);
+          }
+          WindowMessage::SetCursorGrab(grab) => {
+            let _ = window.set_cursor_grab(*grab);
+          }
+          WindowMessage::SetCursorVisible(visible) => {
+            window.set_cursor_visible(*visible);
+          }
+          WindowMessage::SetCursorIcon(icon) => {
+            window.set_cursor_icon(CursorIconWrapper::from(*icon).0);
+          }
+          WindowMessage::SetCursorPosition(position) => {
+            let _ = window.set_cursor_position(PositionWrapper::from(*position).0);
+          }
+          WindowMessage::DragWindow => {
+            let _ = window.drag_window();
+          }
+          WindowMessage::UpdateMenuItem(_id, _update) => {
+            // TODO
+          }
+          WindowMessage::RequestRedraw => {
+            window.request_redraw();
+          }
+          _ => (),
         }
-        WindowMessage::SetFocus => {
-          window.set_focus();
-        }
-        WindowMessage::SetIcon(icon) => {
-          window.set_window_icon(Some(icon.clone()));
-        }
-        #[allow(unused_variables)]
-        WindowMessage::SetSkipTaskbar(skip) => {
-          #[cfg(any(windows, target_os = "linux"))]
-          window.set_skip_taskbar(*skip);
-        }
-        WindowMessage::SetCursorGrab(grab) => {
-          let _ = window.set_cursor_grab(*grab);
-        }
-        WindowMessage::SetCursorVisible(visible) => {
-          window.set_cursor_visible(*visible);
-        }
-        WindowMessage::SetCursorIcon(icon) => {
-          window.set_cursor_icon(CursorIconWrapper::from(*icon).0);
-        }
-        WindowMessage::SetCursorPosition(position) => {
-          let _ = window.set_cursor_position(PositionWrapper::from(*position).0);
-        }
-        WindowMessage::DragWindow => {
-          let _ = window.drag_window();
-        }
-        WindowMessage::UpdateMenuItem(_id, _update) => {
-          // TODO
-        }
-        WindowMessage::RequestRedraw => {
-          window.request_redraw();
-        }
-        _ => (),
       }
     }
   }
