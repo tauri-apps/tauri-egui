@@ -298,6 +298,15 @@ pub fn create_gl_window<T: UserEvent>(
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
 ) {
+  if let Some(window) = windows
+    .lock()
+    .expect("poisoned window collection")
+    .values_mut()
+    .next()
+  {
+    on_window_close(&mut window.inner);
+  }
+
   let persistence = egui_tao::epi::Persistence::from_app_name(app.name());
   let window_builder = egui_tao::epi::window_builder(&native_options, &None).with_title(app.name());
   let gl_window = unsafe {
@@ -348,7 +357,7 @@ pub fn create_gl_window<T: UserEvent>(
 
   #[cfg(not(target_os = "linux"))]
   {
-    windows.lock().expect("poisoned webview collection").insert(
+    windows.lock().expect("poisoned window collection").insert(
       window_id,
       WindowWrapper {
         label,
@@ -426,7 +435,7 @@ pub fn create_gl_window<T: UserEvent>(
       gtk::Inhibit(false)
     });
 
-    windows.lock().expect("poisoned webview collection").insert(
+    windows.lock().expect("poisoned window collection").insert(
       window_id,
       WindowWrapper {
         label,
