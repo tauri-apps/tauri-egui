@@ -25,11 +25,16 @@ use tauri_runtime_wry::{
 };
 
 #[cfg(target_os = "linux")]
-use glutin::platform::ContextTraitExt;
+mod linux {
+  pub use glutin::platform::ContextTraitExt;
+  pub use gtk::prelude::*;
+  pub use std::sync::atomic::{AtomicU8, Ordering};
+  pub const RENDER_FLOW_NEEDS_REPAINT: u8 = 0;
+  pub const RENDER_FLOW_NOOP: u8 = 1;
+  pub const RENDER_FLOW_SHOULD_QUIT: u8 = 2;
+}
 #[cfg(target_os = "linux")]
-use gtk::prelude::*;
-#[cfg(target_os = "linux")]
-use std::sync::atomic::{AtomicU8, Ordering};
+use linux::*;
 
 use std::{
   cell::RefCell,
@@ -421,11 +426,11 @@ pub fn create_gl_window<T: UserEvent>(
 
         {
           let control_flow = if integration.should_quit() {
-            1
+            RENDER_FLOW_SHOULD_QUIT
           } else if needs_repaint {
-            0
+            RENDER_FLOW_NEEDS_REPAINT
           } else {
-            1
+            RENDER_FLOW_NOOP
           };
           r.store(control_flow, Ordering::Relaxed);
         }
@@ -537,17 +542,22 @@ fn linux_gl_loop<T: UserEvent>(
   control_flow: &mut ControlFlow,
   glutin_window_context: &mut GlutinWindowContext,
   event: &Event<Message<T>>,
-) {
+) -> bool {
   let area = unsafe { glutin_window_context.context.raw_handle() };
+  let mut should_quit = false;
   if let Event::MainEventsCleared = event {
     area.queue_render();
     match glutin_window_context.render_flow.load(Ordering::Relaxed) {
-      0 => *control_flow = ControlFlow::Poll,
-      1 => *control_flow = ControlFlow::Wait,
-      2 => *control_flow = ControlFlow::Exit,
+      RENDER_FLOW_NEEDS_REPAINT => *control_flow = ControlFlow::Poll,
+      RENDER_FLOW_NOOP => *control_flow = ControlFlow::Wait,
+      RENDER_FLOW_SHOULD_QUIT => {
+        *control_flow = ControlFlow::Wait;
+        should_quit = true;
+      }
       _ => unreachable!(),
     }
   }
+  should_quit
 }
 
 pub fn handle_gl_loop<T: UserEvent>(
@@ -574,13 +584,20 @@ pub fn handle_gl_loop<T: UserEvent>(
     let mut should_quit = false;
 
     for win in iter {
+      let mut should_quit = false;
       if let Some(glutin_window_context) = &mut win.inner {
         #[cfg(not(target_os = "linux"))]
         {
           should_quit = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
         }
         #[cfg(target_os = "linux")]
-        linux_gl_loop(control_flow, glutin_window_context, event);
+        {
+          should_quit = linux_gl_loop(control_flow, glutin_window_context, event);
+        }
+      }
+
+      if should_quit {
+        on_window_close(&mut win.inner);
       }
     }
 
