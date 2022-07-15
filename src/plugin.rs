@@ -598,32 +598,34 @@ pub fn handle_gl_loop<T: UserEvent>(
           let label = &window.label;
           let glutin_window_context = &mut window.inner;
           let window_event_listeners = &window.window_event_listeners;
-          match event {
+          let handled = match event {
             TaoWindowEvent::Focused(new_focused) => {
               *is_focused = *new_focused;
+              false
             }
             TaoWindowEvent::Resized(physical_size) => {
               if let Some(glutin_window_context) = glutin_window_context.as_ref() {
                 glutin_window_context.context.resize(*physical_size);
               }
+              false
             }
-            TaoWindowEvent::CloseRequested => {
-              on_close_requested(
-                callback,
-                (label, glutin_window_context),
-                window_event_listeners,
-              );
-            }
-            _ => (),
-          }
+            TaoWindowEvent::CloseRequested => on_close_requested(
+              callback,
+              (label, glutin_window_context),
+              window_event_listeners,
+            ),
+            _ => false,
+          };
 
           if let Some(glutin_window_context) = glutin_window_context.as_ref() {
             let gl_window = &glutin_window_context.context;
-            let mut integration = glutin_window_context.integration.borrow_mut();
-            integration.on_event(event);
-            if integration.should_quit() {
-              should_quit = true;
-              *control_flow = ControlFlow::Wait;
+            if !handled {
+              let mut integration = glutin_window_context.integration.borrow_mut();
+              integration.on_event(event);
+              if integration.should_quit() {
+                should_quit = true;
+                *control_flow = ControlFlow::Wait;
+              }
             }
             gl_window.window().request_redraw();
           }
@@ -808,7 +810,7 @@ fn on_close_requested<'a, T: UserEvent>(
   callback: &'a mut (dyn FnMut(RunEvent<T>) + 'static),
   (label, glutin_window_context): (&str, &mut Option<Box<GlutinWindowContext>>),
   window_event_listeners: &WindowEventListeners,
-) {
+) -> bool {
   let (tx, rx) = channel();
   let listeners = window_event_listeners.lock().unwrap();
   let handlers = listeners.values();
@@ -822,8 +824,10 @@ fn on_close_requested<'a, T: UserEvent>(
     event: WindowEvent::CloseRequested { signal_tx: tx },
   });
   if let Ok(true) = rx.try_recv() {
+    true
   } else {
     on_window_close(glutin_window_context);
+    false
   }
 }
 
