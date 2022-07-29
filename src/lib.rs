@@ -4,6 +4,7 @@
 
 use std::sync::mpsc::sync_channel;
 
+use glutin::{ContextError, CreationError};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_runtime::UserEvent;
 use tauri_runtime_wry::{Context, PluginBuilder};
@@ -14,6 +15,18 @@ pub use epi;
 mod plugin;
 use plugin::EguiPlugin;
 pub use plugin::EguiPluginHandle;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+  #[error("failed to create window: {0}")]
+  FailedToCreateWindow(#[from] CreationError),
+  #[error("failed to acquire OpenGL context: {0}")]
+  OpenGlContext(#[from] ContextError),
+  #[error("failed to create painter: {0}")]
+  FailedToCreatePainter(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct EguiPluginBuilder<R: Runtime> {
   app: AppHandle<R>,
