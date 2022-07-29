@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 use tauri::utils::Theme;
-use tauri_runtime::{window::WindowEvent, Error, RunEvent, UserEvent};
+use tauri_runtime::{window::WindowEvent, RunEvent, UserEvent};
 #[cfg(target_os = "macos")]
 use tauri_runtime_wry::wry::application::platform::macos::WindowExtMacOS;
 #[cfg(target_os = "linux")]
@@ -24,6 +24,8 @@ use tauri_runtime_wry::{
   WindowEventWrapper, WindowMenuEventListeners, WindowMessage,
 };
 
+use crate::{Error, Result};
+
 #[cfg(target_os = "linux")]
 mod linux {
   pub use glutin::platform::ContextTraitExt;
@@ -42,7 +44,7 @@ use std::{
   ops::Deref,
   rc::Rc,
   sync::{
-    mpsc::{channel, Receiver, SyncSender},
+    mpsc::{channel, Receiver, Sender, SyncSender},
     Arc, Mutex,
   },
 };
@@ -55,6 +57,7 @@ pub struct CreateWindowPayload {
   label: String,
   app: Box<dyn epi::App + Send>,
   native_options: epi::NativeOptions,
+  tx: Sender<Result<()>>,
 }
 
 #[derive(Clone)]
@@ -135,37 +138,40 @@ impl<T: UserEvent> EguiPluginHandle<T> {
     label: String,
     app: Box<dyn epi::App + Send>,
     native_options: epi::NativeOptions,
-  ) -> tauri::Result<Window<T>> {
+  ) -> crate::Result<Window<T>> {
     let window_id = rand::random();
 
     self.context.inner.run_threaded(|main_thread| {
-      let payload = CreateWindowPayload {
-        window_id,
-        label,
-        app,
-        native_options,
-      };
       if let Some(main_thread) = main_thread {
         create_gl_window(
           &main_thread.window_target,
           &self.context.inner.webview_id_map,
           &self.context.main_thread.windows,
-          payload.label,
-          payload.app,
-          payload.native_options,
-          payload.window_id,
+          label,
+          app,
+          native_options,
+          window_id,
           &self.context.inner.proxy,
-        );
+        )
       } else {
-        let _ = self.create_window_tx.send(payload);
+        let (tx, rx) = channel();
+        let payload = CreateWindowPayload {
+          window_id,
+          label,
+          app,
+          native_options,
+          tx,
+        };
+        self.create_window_tx.send(payload).unwrap();
         // force the event loop to receive a new event
         let _ = self
           .context
           .inner
           .proxy
           .send_event(Message::Task(Box::new(move || {})));
+        rx.recv().unwrap()
       }
-    });
+    })?;
     Ok(Window {
       id: window_id,
       context: self.context.clone(),
@@ -185,7 +191,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
     web_context: &WebContextStore,
   ) -> bool {
     if let Ok(payload) = self.create_window_channel.1.try_recv() {
-      create_gl_window(
+      let res = create_gl_window(
         event_loop,
         &context.webview_id_map,
         &self.context.main_thread.windows,
@@ -195,6 +201,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
         payload.window_id,
         proxy,
       );
+      payload.tx.send(res).unwrap();
     }
     handle_gl_loop(
       &self.context.main_thread.windows,
@@ -302,7 +309,7 @@ pub fn create_gl_window<T: UserEvent>(
   native_options: epi::NativeOptions,
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
-) {
+) -> Result<()> {
   if let Some(window) = windows
     .lock()
     .expect("poisoned window collection")
@@ -320,10 +327,9 @@ pub fn create_gl_window<T: UserEvent>(
       .with_srgb(true)
       .with_stencil_buffer(0)
       .with_vsync(true)
-      .build_windowed(window_builder, event_loop)
-      .unwrap()
+      .build_windowed(window_builder, event_loop)?
       .make_current()
-      .unwrap()
+      .map_err(|(_, e)| e)?
   };
 
   webview_id_map.insert(gl_window.window().id(), window_id);
@@ -347,9 +353,7 @@ pub fn create_gl_window<T: UserEvent>(
 
   let repaint_signal = std::sync::Arc::new(GlowRepaintSignal(proxy.clone(), window_id));
 
-  let painter = egui_glow::Painter::new(&gl, None, "")
-    .map_err(|error| eprintln!("some OpenGL error occurred {}\n", error))
-    .unwrap();
+  let painter = egui_glow::Painter::new(&gl, None, "").map_err(Error::FailedToCreatePainter)?;
 
   let integration = egui_tao::epi::EpiIntegration::new(
     "egui_glow",
@@ -457,6 +461,8 @@ pub fn create_gl_window<T: UserEvent>(
       },
     );
   }
+
+  Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -703,7 +709,7 @@ pub(crate) fn handle_user_message<T: UserEvent>(
               window
                 .inner_position()
                 .map(|p| PhysicalPositionWrapper(p).into())
-                .map_err(|_| Error::FailedToSendMessage),
+                .map_err(|_| tauri_runtime::Error::FailedToSendMessage),
             )
             .unwrap(),
           WindowMessage::OuterPosition(tx) => tx
@@ -711,7 +717,7 @@ pub(crate) fn handle_user_message<T: UserEvent>(
               window
                 .outer_position()
                 .map(|p| PhysicalPositionWrapper(p).into())
-                .map_err(|_| Error::FailedToSendMessage),
+                .map_err(|_| tauri_runtime::Error::FailedToSendMessage),
             )
             .unwrap(),
           WindowMessage::InnerSize(tx) => tx
