@@ -9,8 +9,8 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_runtime::UserEvent;
 use tauri_runtime_wry::{Context, PluginBuilder};
 
+pub use eframe;
 pub use egui;
-pub use epi;
 
 mod plugin;
 use plugin::EguiPlugin;

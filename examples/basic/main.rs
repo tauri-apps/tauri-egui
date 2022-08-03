@@ -9,7 +9,7 @@
 
 use egui::{FontData, FontDefinitions, FontFamily};
 use tauri::{RunEvent, State};
-use tauri_egui::{egui, epi};
+use tauri_egui::{eframe, egui};
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -18,7 +18,7 @@ async fn open_native_window(
   egui_handle: State<'_, tauri_egui::EguiPluginHandle>,
 ) -> Result<String, ()> {
   let (egui_app, rx) = Layout::new();
-  let native_options = epi::NativeOptions {
+  let native_options = eframe::NativeOptions {
     resizable: false,
     ..Default::default()
   };
@@ -52,37 +52,33 @@ impl Layout {
   }
 }
 
-impl epi::App for Layout {
-  fn name(&self) -> &str {
-    "Glutin Window"
-  }
+impl eframe::App for Layout {
+  // fn setup(
+  //   &mut self,
+  //   ctx: &egui::Context,
+  //   _frame: &eframe::Frame,
+  //   _storage: Option<&dyn eframe::Storage>,
+  // ) {
+  //   let mut font = FontDefinitions::default();
+  //   let font_name = "SourceSansPro Regular";
+  //   font.font_data.insert(
+  //     font_name.into(),
+  //     FontData::from_static(include_bytes!("SourceSansPro-Regular.ttf")),
+  //   );
+  //   font
+  //     .families
+  //     .get_mut(&FontFamily::Monospace)
+  //     .unwrap()
+  //     .insert(0, font_name.into());
+  //   font
+  //     .families
+  //     .get_mut(&FontFamily::Proportional)
+  //     .unwrap()
+  //     .insert(0, font_name.into());
+  //   ctx.set_fonts(font);
+  // }
 
-  fn setup(
-    &mut self,
-    ctx: &egui::Context,
-    _frame: &epi::Frame,
-    _storage: Option<&dyn epi::Storage>,
-  ) {
-    let mut font = FontDefinitions::default();
-    let font_name = "SourceSansPro Regular";
-    font.font_data.insert(
-      font_name.into(),
-      FontData::from_static(include_bytes!("SourceSansPro-Regular.ttf")),
-    );
-    font
-      .families
-      .get_mut(&FontFamily::Monospace)
-      .unwrap()
-      .insert(0, font_name.into());
-    font
-      .families
-      .get_mut(&FontFamily::Proportional)
-      .unwrap()
-      .insert(0, font_name.into());
-    ctx.set_fonts(font);
-  }
-
-  fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+  fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
     let Self { input, tx, .. } = self;
 
     let size = egui::Vec2 { x: 340., y: 100. };

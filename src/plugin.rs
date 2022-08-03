@@ -18,25 +18,13 @@ use tauri_runtime_wry::{
     menu::CustomMenuItem,
     window::Fullscreen,
   },
-  Context as WryContext, CursorIconWrapper, EventLoopIterationContext, HasRawWindowHandle, Message,
+  Context as WryContext, CursorIconWrapper, EventLoopIterationContext, Message,
   PhysicalPositionWrapper, PhysicalSizeWrapper, Plugin, PositionWrapper, RawWindowHandle,
   SizeWrapper, WebContextStore, WebviewId, WebviewIdStore, WindowEventListeners,
   WindowEventWrapper, WindowMenuEventListeners, WindowMessage,
 };
 
 use crate::{Error, Result};
-
-#[cfg(target_os = "linux")]
-mod linux {
-  pub use glutin::platform::ContextTraitExt;
-  pub use gtk::prelude::*;
-  pub use std::sync::atomic::{AtomicU8, Ordering};
-  pub const RENDER_FLOW_NEEDS_REPAINT: u8 = 0;
-  pub const RENDER_FLOW_NOOP: u8 = 1;
-  pub const RENDER_FLOW_SHOULD_QUIT: u8 = 2;
-}
-#[cfg(target_os = "linux")]
-use linux::*;
 
 use std::{
   cell::RefCell,
@@ -55,8 +43,8 @@ use window::Window;
 pub struct CreateWindowPayload {
   window_id: WebviewId,
   label: String,
-  app: Box<dyn epi::App + Send>,
-  native_options: epi::NativeOptions,
+  app: Box<dyn eframe::App + Send>,
+  native_options: eframe::NativeOptions,
   tx: Sender<Result<()>>,
 }
 
@@ -136,8 +124,8 @@ impl<T: UserEvent> EguiPluginHandle<T> {
   pub fn create_window(
     &self,
     label: String,
-    app: Box<dyn epi::App + Send>,
-    native_options: epi::NativeOptions,
+    app: Box<dyn eframe::App + Send>,
+    native_options: eframe::NativeOptions,
   ) -> crate::Result<Window<T>> {
     let window_id = rand::random();
 
@@ -283,11 +271,10 @@ impl<T> Deref for MaybeRcCell<T> {
 
 pub struct GlutinWindowContext {
   pub context: MaybeRc<glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>>,
-  glow_context: MaybeRc<glow::Context>,
+  app: Box<dyn eframe::App + Send>,
+  glow_context: Arc<glow::Context>,
   painter: MaybeRcCell<egui_glow::Painter>,
-  integration: MaybeRcCell<egui_tao::epi::EpiIntegration>,
-  #[cfg(target_os = "linux")]
-  render_flow: Rc<AtomicU8>,
+  integration: MaybeRcCell<eframe::native::epi_integration::EpiIntegration>,
 }
 
 #[allow(dead_code)]
@@ -305,8 +292,8 @@ pub fn create_gl_window<T: UserEvent>(
   webview_id_map: &WebviewIdStore,
   windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
   label: String,
-  app: Box<dyn epi::App + Send>,
-  native_options: epi::NativeOptions,
+  mut app: Box<dyn eframe::App + Send>,
+  native_options: eframe::NativeOptions,
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
 ) -> Result<()> {
@@ -319,8 +306,13 @@ pub fn create_gl_window<T: UserEvent>(
     on_window_close(&mut window.inner);
   }
 
-  let persistence = egui_tao::epi::Persistence::from_app_name(app.name());
-  let window_builder = egui_tao::epi::window_builder(&native_options, &None).with_title(app.name());
+  use eframe::native::epi_integration;
+
+  let storage = epi_integration::create_storage(&label);
+  let window_settings = epi_integration::load_window_settings(storage.as_deref());
+
+  let window_builder =
+    epi_integration::window_builder(&native_options, &window_settings).with_title(&label);
   let gl_window = unsafe {
     glutin::ContextBuilder::new()
       .with_depth_buffer(0)
@@ -335,34 +327,41 @@ pub fn create_gl_window<T: UserEvent>(
   webview_id_map.insert(gl_window.window().id(), window_id);
 
   let gl = unsafe { glow::Context::from_loader_function(|s| gl_window.get_proc_address(s)) };
+  let gl = std::sync::Arc::new(gl);
 
   unsafe {
     use glow::HasContext as _;
     gl.enable(glow::FRAMEBUFFER_SRGB);
   }
 
-  struct GlowRepaintSignal<T: UserEvent>(EventLoopProxy<Message<T>>, WebviewId);
+  let painter =
+    egui_glow::Painter::new(gl.clone(), None, "").map_err(Error::FailedToCreatePainter)?;
 
-  impl<T: UserEvent> epi::backend::RepaintSignal for GlowRepaintSignal<T> {
-    fn request_repaint(&self) {
-      let _ = self
-        .0
-        .send_event(Message::Window(self.1, WindowMessage::RequestRedraw));
-    }
-  }
-
-  let repaint_signal = std::sync::Arc::new(GlowRepaintSignal(proxy.clone(), window_id));
-
-  let painter = egui_glow::Painter::new(&gl, None, "").map_err(Error::FailedToCreatePainter)?;
-
-  let integration = egui_tao::epi::EpiIntegration::new(
-    "egui_glow",
+  let system_theme = native_options.system_theme();
+  let mut integration = epi_integration::EpiIntegration::new(
+    &event_loop,
     painter.max_texture_side(),
     gl_window.window(),
-    repaint_signal,
-    persistence,
-    app,
+    system_theme,
+    storage,
+    Some(gl.clone()),
   );
+  let theme = system_theme.unwrap_or(native_options.default_theme);
+  integration.egui_ctx.set_visuals(theme.egui_visuals());
+
+  {
+    let event_loop_proxy = egui::mutex::Mutex::new(proxy.clone());
+    integration.egui_ctx.set_request_repaint_callback(move || {
+      event_loop_proxy
+        .lock()
+        .send_event(Message::Window(window_id, WindowMessage::RequestRedraw))
+        .ok();
+    });
+  }
+
+  if app.warm_up_enabled() {
+    integration.warm_up(app.as_mut(), gl_window.window());
+  }
 
   #[cfg(not(target_os = "linux"))]
   {
@@ -372,7 +371,8 @@ pub fn create_gl_window<T: UserEvent>(
         label,
         inner: Some(Box::new(GlutinWindowContext {
           context: MaybeRc::new(gl_window),
-          glow_context: MaybeRc::new(gl),
+          app,
+          glow_context: gl,
           painter: MaybeRcCell::new(painter),
           integration: MaybeRcCell::new(integration),
         })),
@@ -382,101 +382,75 @@ pub fn create_gl_window<T: UserEvent>(
       },
     );
   }
-  #[cfg(target_os = "linux")]
-  {
-    let area = unsafe { gl_window.raw_handle() };
-    let integration = Rc::new(RefCell::new(integration));
-    let painter = Rc::new(RefCell::new(painter));
-    let render_flow = Rc::new(AtomicU8::new(1));
-    let gl_window = Rc::new(gl_window);
-    let gl = Rc::new(gl);
-
-    let i = integration.clone();
-    let p = painter.clone();
-    let r = render_flow.clone();
-    let gl_window_ = Rc::downgrade(&gl_window);
-    let gl_ = gl.clone();
-    area.connect_render(move |_, _| {
-      if let Some(gl_window) = gl_window_.upgrade() {
-        let mut integration = i.borrow_mut();
-        let mut painter = p.borrow_mut();
-        let epi::egui::FullOutput {
-          platform_output,
-          needs_repaint,
-          textures_delta,
-          shapes,
-        } = integration.update(gl_window.window());
-
-        integration.handle_platform_output(gl_window.window(), platform_output);
-
-        let clipped_meshes = integration.egui_ctx.tessellate(shapes);
-
-        {
-          let color = integration.app.clear_color();
-          unsafe {
-            use glow::HasContext as _;
-            gl_.disable(glow::SCISSOR_TEST);
-            gl_.clear_color(color[0], color[1], color[2], color[3]);
-            gl_.clear(glow::COLOR_BUFFER_BIT);
-          }
-          painter.paint_and_update_textures(
-            &gl_,
-            gl_window.window().inner_size().into(),
-            integration.egui_ctx.pixels_per_point(),
-            clipped_meshes,
-            &textures_delta,
-          );
-        }
-
-        {
-          let control_flow = if integration.should_quit() {
-            RENDER_FLOW_SHOULD_QUIT
-          } else if needs_repaint {
-            RENDER_FLOW_NEEDS_REPAINT
-          } else {
-            RENDER_FLOW_NOOP
-          };
-          r.store(control_flow, Ordering::Relaxed);
-        }
-
-        integration.maybe_autosave(gl_window.window());
-      }
-      gtk::Inhibit(false)
-    });
-
-    windows.lock().expect("poisoned window collection").insert(
-      window_id,
-      WindowWrapper {
-        label,
-        inner: Some(Box::new(GlutinWindowContext {
-          context: MaybeRc::Rc(gl_window),
-          glow_context: MaybeRc::Rc(gl),
-          painter: MaybeRcCell::RcCell(painter),
-          integration: MaybeRcCell::RcCell(integration),
-          render_flow,
-        })),
-        menu_items: Default::default(),
-        window_event_listeners: Default::default(),
-        menu_event_listeners: Default::default(),
-      },
-    );
-  }
 
   Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
 fn win_mac_gl_loop<T: UserEvent>(
   control_flow: &mut ControlFlow,
   glutin_window_context: &mut GlutinWindowContext,
   event: &Event<Message<T>>,
   is_focused: bool,
 ) -> bool {
+  let gl_window = &glutin_window_context.context;
+  let gl = &glutin_window_context.glow_context;
+  let app = &mut glutin_window_context.app;
+  let mut integration = glutin_window_context.integration.borrow_mut();
+  let mut painter = glutin_window_context.painter.borrow_mut();
+  let window = gl_window.window();
+
   let mut redraw = || {
-    let gl_window = &glutin_window_context.context;
-    let gl = &glutin_window_context.glow_context;
-    let mut integration = glutin_window_context.integration.borrow_mut();
-    let mut painter = glutin_window_context.painter.borrow_mut();
+    let screen_size_in_pixels: [u32; 2] = window.inner_size().into();
+
+    egui_glow::painter::clear(
+      &gl,
+      screen_size_in_pixels,
+      app.clear_color(&integration.egui_ctx.style().visuals),
+    );
+
+    let egui::FullOutput {
+      platform_output,
+      repaint_after,
+      textures_delta,
+      shapes,
+    } = integration.update(app.as_mut(), window);
+
+    integration.handle_platform_output(window, platform_output);
+
+    let clipped_primitives = integration.egui_ctx.tessellate(shapes);
+
+    painter.paint_and_update_textures(
+      screen_size_in_pixels,
+      integration.egui_ctx.pixels_per_point(),
+      &clipped_primitives,
+      &textures_delta,
+    );
+
+    integration.post_rendering(app.as_mut(), window);
+
+    gl_window.swap_buffers().unwrap();
+
+    let mut should_quit = false;
+
+    *control_flow = if integration.should_quit() {
+      should_quit = true;
+      ControlFlow::Wait
+    } else if repaint_after.is_zero() {
+      window.request_redraw();
+      ControlFlow::Poll
+    } else if let Some(repaint_after_instant) = std::time::Instant::now().checked_add(repaint_after)
+    {
+      // if repaint_after is something huge and can't be added to Instant,
+      // we will use `ControlFlow::Wait` instead.
+      // technically, this might lead to some weird corner cases where the user *WANTS*
+      // winit to use `WaitUntil(MAX_INSTANT)` explicitly. they can roll their own
+      // egui backend impl i guess.
+      ControlFlow::WaitUntil(repaint_after_instant)
+    } else {
+      ControlFlow::Wait
+    };
+
+    integration.maybe_autosave(app.as_mut(), window);
 
     if !is_focused {
       // On Mac, a minimized Window uses up all CPU: https://github.com/emilk/egui/issues/325
@@ -487,52 +461,6 @@ fn win_mac_gl_loop<T: UserEvent>(
       std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    let epi::egui::FullOutput {
-      platform_output,
-      needs_repaint,
-      textures_delta,
-      shapes,
-    } = integration.update(gl_window.window());
-
-    integration.handle_platform_output(gl_window.window(), platform_output);
-
-    let clipped_meshes = integration.egui_ctx.tessellate(shapes);
-
-    {
-      let color = integration.app.clear_color();
-      unsafe {
-        use glow::HasContext as _;
-        gl.disable(glow::SCISSOR_TEST);
-        gl.clear_color(color[0], color[1], color[2], color[3]);
-        gl.clear(glow::COLOR_BUFFER_BIT);
-      }
-      painter.paint_and_update_textures(
-        &gl,
-        gl_window.window().inner_size().into(),
-        integration.egui_ctx.pixels_per_point(),
-        clipped_meshes,
-        &textures_delta,
-      );
-
-      gl_window.swap_buffers().unwrap();
-    }
-
-    let mut should_quit = false;
-
-    {
-      *control_flow = if integration.should_quit() {
-        should_quit = true;
-        ControlFlow::Wait
-      } else if needs_repaint {
-        gl_window.window().request_redraw();
-        ControlFlow::Poll
-      } else {
-        ControlFlow::Wait
-      };
-    }
-
-    integration.maybe_autosave(gl_window.window());
-
     should_quit
   };
 
@@ -541,29 +469,6 @@ fn win_mac_gl_loop<T: UserEvent>(
     Event::RedrawRequested(_) if !cfg!(windows) => redraw(),
     _ => false,
   }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_gl_loop<T: UserEvent>(
-  control_flow: &mut ControlFlow,
-  glutin_window_context: &mut GlutinWindowContext,
-  event: &Event<Message<T>>,
-) -> bool {
-  let area = unsafe { glutin_window_context.context.raw_handle() };
-  let mut should_quit = false;
-  if let Event::MainEventsCleared = event {
-    area.queue_render();
-    match glutin_window_context.render_flow.load(Ordering::Relaxed) {
-      RENDER_FLOW_NEEDS_REPAINT => *control_flow = ControlFlow::Poll,
-      RENDER_FLOW_NOOP => *control_flow = ControlFlow::Wait,
-      RENDER_FLOW_SHOULD_QUIT => {
-        *control_flow = ControlFlow::Wait;
-        should_quit = true;
-      }
-      _ => unreachable!(),
-    }
-  }
-  should_quit
 }
 
 pub fn handle_gl_loop<T: UserEvent>(
@@ -592,14 +497,7 @@ pub fn handle_gl_loop<T: UserEvent>(
     for win in iter {
       let mut should_quit = false;
       if let Some(glutin_window_context) = &mut win.inner {
-        #[cfg(not(target_os = "linux"))]
-        {
-          should_quit = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
-        }
-        #[cfg(target_os = "linux")]
-        {
-          should_quit = linux_gl_loop(control_flow, glutin_window_context, event);
-        }
+        should_quit = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
       }
 
       if should_quit {
@@ -627,8 +525,13 @@ pub fn handle_gl_loop<T: UserEvent>(
               false
             }
             TaoWindowEvent::Resized(physical_size) => {
-              if let Some(glutin_window_context) = glutin_window_context.as_ref() {
-                glutin_window_context.context.resize(*physical_size);
+              // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
+              // See: https://github.com/rust-windowing/winit/issues/208
+              // This solves an issue where the app would panic when minimizing on Windows.
+              if physical_size.width > 0 && physical_size.height > 0 {
+                if let Some(glutin_window_context) = glutin_window_context.as_ref() {
+                  glutin_window_context.context.resize(*physical_size);
+                }
               }
               false
             }
@@ -640,11 +543,12 @@ pub fn handle_gl_loop<T: UserEvent>(
             _ => false,
           };
 
-          if let Some(glutin_window_context) = glutin_window_context.as_ref() {
+          if let Some(glutin_window_context) = glutin_window_context.as_mut() {
             let gl_window = &glutin_window_context.context;
+            let app = &mut glutin_window_context.app;
             if !handled {
               let mut integration = glutin_window_context.integration.borrow_mut();
-              integration.on_event(event);
+              integration.on_event(app.as_mut(), event);
               if integration.should_quit() {
                 should_quit = true;
                 *control_flow = ControlFlow::Wait;
@@ -737,9 +641,10 @@ pub(crate) fn handle_user_message<T: UserEvent>(
           WindowMessage::AvailableMonitors(tx) => {
             tx.send(window.available_monitors().collect()).unwrap()
           }
-          WindowMessage::RawWindowHandle(tx) => tx
-            .send(RawWindowHandle(window.raw_window_handle()))
-            .unwrap(),
+          // TODO
+          // WindowMessage::RawWindowHandle(tx) => tx
+          //   .send(RawWindowHandle(window.raw_window_handle()))
+          //   .unwrap(),
           WindowMessage::Theme(tx) => {
             #[cfg(any(windows, target_os = "macos"))]
             tx.send(tauri_runtime_wry::map_theme(&window.theme()))
@@ -856,26 +761,13 @@ fn on_close_requested<'a, T: UserEvent>(
 
 fn on_window_close(glutin_window_context: &mut Option<Box<GlutinWindowContext>>) {
   // Destrooy GL context if its a GLWindow
-  if let Some(glutin_window_context) = glutin_window_context.take() {
-    #[cfg(not(target_os = "linux"))]
-    {
-      glutin_window_context
-        .integration
-        .borrow_mut()
-        .on_exit(glutin_window_context.context.window());
-      glutin_window_context
-        .painter
-        .borrow_mut()
-        .destroy(&glutin_window_context.glow_context);
-    }
-    #[cfg(target_os = "linux")]
-    {
-      let mut integration = glutin_window_context.integration.borrow_mut();
-      integration.on_exit(glutin_window_context.context.window());
-      glutin_window_context
-        .painter
-        .borrow_mut()
-        .destroy(&glutin_window_context.glow_context);
-    }
+  if let Some(mut glutin_window_context) = glutin_window_context.take() {
+    let app = glutin_window_context.app.as_mut();
+    glutin_window_context
+      .integration
+      .borrow_mut()
+      .save(app, glutin_window_context.context.window());
+    app.on_exit(Some(&glutin_window_context.glow_context));
+    glutin_window_context.painter.borrow_mut().destroy();
   }
 }
