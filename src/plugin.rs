@@ -364,25 +364,22 @@ pub fn create_gl_window<T: UserEvent>(
     integration.warm_up(app.as_mut(), gl_window.window());
   }
 
-  #[cfg(not(target_os = "linux"))]
-  {
-    windows.lock().expect("poisoned window collection").insert(
-      window_id,
-      WindowWrapper {
-        label,
-        inner: Some(Box::new(GlutinWindowContext {
-          context: MaybeRc::new(gl_window),
-          app,
-          glow_context: gl,
-          painter: MaybeRcCell::new(painter),
-          integration: MaybeRcCell::new(integration),
-        })),
-        menu_items: Default::default(),
-        menu_event_listeners: Default::default(),
-        window_event_listeners: Default::default(),
-      },
-    );
-  }
+  windows.lock().expect("poisoned window collection").insert(
+    window_id,
+    WindowWrapper {
+      label,
+      inner: Some(Box::new(GlutinWindowContext {
+        context: MaybeRc::new(gl_window),
+        app,
+        glow_context: gl,
+        painter: MaybeRcCell::new(painter),
+        integration: MaybeRcCell::new(integration),
+      })),
+      menu_items: Default::default(),
+      menu_event_listeners: Default::default(),
+      window_event_listeners: Default::default(),
+    },
+  );
 
   Ok(())
 }
