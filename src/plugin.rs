@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+use eframe::CreationContext;
 use raw_window_handle::HasRawWindowHandle;
 use tauri::utils::Theme;
 use tauri_runtime::{window::WindowEvent, RunEvent, UserEvent};
@@ -41,10 +42,12 @@ use std::{
 pub mod window;
 use window::Window;
 
+pub type AppCreator = Box<dyn FnOnce(&CreationContext<'_>) -> Box<dyn eframe::App + Send> + Send>;
+
 pub struct CreateWindowPayload {
   window_id: WebviewId,
   label: String,
-  app: Box<dyn eframe::App + Send>,
+  app_creator: AppCreator,
   native_options: eframe::NativeOptions,
   tx: Sender<Result<()>>,
 }
@@ -125,7 +128,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
   pub fn create_window(
     &self,
     label: String,
-    app: Box<dyn eframe::App + Send>,
+    app_creator: AppCreator,
     native_options: eframe::NativeOptions,
   ) -> crate::Result<Window<T>> {
     let window_id = rand::random();
@@ -137,7 +140,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
           &self.context.inner.webview_id_map,
           &self.context.main_thread.windows,
           label,
-          app,
+          app_creator,
           native_options,
           window_id,
           &self.context.inner.proxy,
@@ -147,7 +150,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
         let payload = CreateWindowPayload {
           window_id,
           label,
-          app,
+          app_creator,
           native_options,
           tx,
         };
@@ -185,7 +188,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
         &context.webview_id_map,
         &self.context.main_thread.windows,
         payload.label,
-        payload.app,
+        payload.app_creator,
         payload.native_options,
         payload.window_id,
         proxy,
@@ -293,7 +296,7 @@ pub fn create_gl_window<T: UserEvent>(
   webview_id_map: &WebviewIdStore,
   windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
   label: String,
-  mut app: Box<dyn eframe::App + Send>,
+  app_creator: AppCreator,
   native_options: eframe::NativeOptions,
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
@@ -359,6 +362,15 @@ pub fn create_gl_window<T: UserEvent>(
         .ok();
     });
   }
+
+  let mut app = app_creator(&eframe::CreationContext {
+    egui_ctx: integration.egui_ctx.clone(),
+    integration_info: integration.frame.info(),
+    storage: integration.frame.storage(),
+    gl: Some(gl.clone()),
+    #[cfg(feature = "wgpu")]
+    wgpu_render_state: None,
+  });
 
   if app.warm_up_enabled() {
     integration.warm_up(app.as_mut(), gl_window.window());

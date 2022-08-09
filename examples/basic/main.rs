@@ -26,12 +26,35 @@ async fn open_native_window(
   let _window = egui_handle
     .create_window(
       "native-window".to_string(),
-      Box::new(egui_app),
+      Box::new(|cc| {
+        setup(cc);
+        Box::new(egui_app)
+      }),
       native_options,
     )
     .unwrap();
 
   Ok(rx.recv().unwrap_or_else(|_| String::new()))
+}
+
+fn setup(cc: &eframe::CreationContext) {
+  let mut font = FontDefinitions::default();
+  let font_name = "SourceSansPro Regular";
+  font.font_data.insert(
+    font_name.into(),
+    FontData::from_static(include_bytes!("SourceSansPro-Regular.ttf")),
+  );
+  font
+    .families
+    .get_mut(&FontFamily::Monospace)
+    .unwrap()
+    .insert(0, font_name.into());
+  font
+    .families
+    .get_mut(&FontFamily::Proportional)
+    .unwrap()
+    .insert(0, font_name.into());
+  cc.egui_ctx.set_fonts(font);
 }
 
 struct Layout {
@@ -53,31 +76,6 @@ impl Layout {
 }
 
 impl eframe::App for Layout {
-  // fn setup(
-  //   &mut self,
-  //   ctx: &egui::Context,
-  //   _frame: &eframe::Frame,
-  //   _storage: Option<&dyn eframe::Storage>,
-  // ) {
-  //   let mut font = FontDefinitions::default();
-  //   let font_name = "SourceSansPro Regular";
-  //   font.font_data.insert(
-  //     font_name.into(),
-  //     FontData::from_static(include_bytes!("SourceSansPro-Regular.ttf")),
-  //   );
-  //   font
-  //     .families
-  //     .get_mut(&FontFamily::Monospace)
-  //     .unwrap()
-  //     .insert(0, font_name.into());
-  //   font
-  //     .families
-  //     .get_mut(&FontFamily::Proportional)
-  //     .unwrap()
-  //     .insert(0, font_name.into());
-  //   ctx.set_fonts(font);
-  // }
-
   fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
     let Self { input, tx, .. } = self;
 
