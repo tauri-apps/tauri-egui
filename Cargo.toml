@@ -15,6 +15,7 @@ egui_glow = { git = "https://github.com/wusyong/egui", branch = "new" }
 glutin = { git = "https://github.com/wusyong/glutin", branch = "new" }
 glow = "0.11"
 rand = "0.8"
+raw-window-handle = "0.5"
 
 [dev-dependencies]
 tauri = { version = "1.0", git = "https://github.com/tauri-apps/tauri",  features = ["dialog-message"] }

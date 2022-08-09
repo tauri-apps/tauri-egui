@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+use raw_window_handle::HasRawWindowHandle;
 use tauri::utils::Theme;
 use tauri_runtime::{window::WindowEvent, RunEvent, UserEvent};
 #[cfg(target_os = "macos")]
@@ -641,10 +642,9 @@ pub(crate) fn handle_user_message<T: UserEvent>(
           WindowMessage::AvailableMonitors(tx) => {
             tx.send(window.available_monitors().collect()).unwrap()
           }
-          // TODO
-          // WindowMessage::RawWindowHandle(tx) => tx
-          //   .send(RawWindowHandle(window.raw_window_handle()))
-          //   .unwrap(),
+          WindowMessage::RawWindowHandle(tx) => tx
+            .send(RawWindowHandle(window.raw_window_handle()))
+            .unwrap(),
           WindowMessage::Theme(tx) => {
             #[cfg(any(windows, target_os = "macos"))]
             tx.send(tauri_runtime_wry::map_theme(&window.theme()))
