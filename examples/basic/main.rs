@@ -30,6 +30,7 @@ async fn open_native_window(
         setup(cc);
         Box::new(egui_app)
       }),
+      "Login".into(),
       native_options,
     )
     .unwrap();

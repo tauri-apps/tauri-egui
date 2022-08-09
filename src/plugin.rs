@@ -48,6 +48,7 @@ pub struct CreateWindowPayload {
   window_id: WebviewId,
   label: String,
   app_creator: AppCreator,
+  title: String,
   native_options: eframe::NativeOptions,
   tx: Sender<Result<()>>,
 }
@@ -129,6 +130,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
     &self,
     label: String,
     app_creator: AppCreator,
+    title: String,
     native_options: eframe::NativeOptions,
   ) -> crate::Result<Window<T>> {
     let window_id = rand::random();
@@ -141,6 +143,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
           &self.context.main_thread.windows,
           label,
           app_creator,
+          title,
           native_options,
           window_id,
           &self.context.inner.proxy,
@@ -151,6 +154,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
           window_id,
           label,
           app_creator,
+          title,
           native_options,
           tx,
         };
@@ -189,6 +193,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
         &self.context.main_thread.windows,
         payload.label,
         payload.app_creator,
+        payload.title,
         payload.native_options,
         payload.window_id,
         proxy,
@@ -297,6 +302,7 @@ pub fn create_gl_window<T: UserEvent>(
   windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
   label: String,
   app_creator: AppCreator,
+  title: String,
   native_options: eframe::NativeOptions,
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
@@ -316,7 +322,7 @@ pub fn create_gl_window<T: UserEvent>(
   let window_settings = epi_integration::load_window_settings(storage.as_deref());
 
   let window_builder =
-    epi_integration::window_builder(&native_options, &window_settings).with_title(&label);
+    epi_integration::window_builder(&native_options, &window_settings).with_title(&title);
   let gl_window = unsafe {
     glutin::ContextBuilder::new()
       .with_depth_buffer(0)
