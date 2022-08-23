@@ -481,8 +481,10 @@ fn win_mac_gl_loop<T: UserEvent>(
   };
 
   match event {
-    Event::RedrawEventsCleared if cfg!(windows) => redraw(),
-    Event::RedrawRequested(_) if !cfg!(windows) => redraw(),
+    #[cfg(not(target_os = "macos"))]
+    Event::RedrawEventsCleared => redraw(),
+    #[cfg(target_os = "macos")]
+    Event::RedrawRequested(_) => redraw(),
     _ => false,
   }
 }
