@@ -323,12 +323,22 @@ pub fn create_gl_window<T: UserEvent>(
 
   let window_builder =
     epi_integration::window_builder(&native_options, &window_settings).with_title(&title);
+
+  use eframe::HardwareAcceleration;
+  let hardware_acceleration = match native_options.hardware_acceleration {
+    HardwareAcceleration::Required => Some(true),
+    HardwareAcceleration::Preferred => None,
+    HardwareAcceleration::Off => Some(false),
+  };
+
   let gl_window = unsafe {
     glutin::ContextBuilder::new()
-      .with_depth_buffer(0)
+      .with_hardware_acceleration(hardware_acceleration)
+      .with_depth_buffer(native_options.depth_buffer)
+      .with_multisampling(native_options.multisampling)
       .with_srgb(true)
-      .with_stencil_buffer(0)
-      .with_vsync(true)
+      .with_stencil_buffer(native_options.stencil_buffer)
+      .with_vsync(native_options.vsync)
       .build_windowed(window_builder, event_loop)?
       .make_current()
       .map_err(|(_, e)| e)?
@@ -415,7 +425,7 @@ fn win_mac_gl_loop<T: UserEvent>(
   let mut painter = glutin_window_context.painter.borrow_mut();
   let window = gl_window.window();
 
-  let mut redraw = || {
+  let mut paint = || {
     let screen_size_in_pixels: [u32; 2] = window.inner_size().into();
 
     egui_glow::painter::clear(
@@ -446,10 +456,10 @@ fn win_mac_gl_loop<T: UserEvent>(
 
     gl_window.swap_buffers().unwrap();
 
-    let mut should_quit = false;
+    let mut should_close = false;
 
-    *control_flow = if integration.should_quit() {
-      should_quit = true;
+    *control_flow = if integration.should_close() {
+      should_close = true;
       ControlFlow::Wait
     } else if repaint_after.is_zero() {
       window.request_redraw();
@@ -477,14 +487,14 @@ fn win_mac_gl_loop<T: UserEvent>(
       std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    should_quit
+    should_close
   };
 
   match event {
     #[cfg(not(target_os = "macos"))]
-    Event::RedrawEventsCleared => redraw(),
+    Event::RedrawEventsCleared => paint(),
     #[cfg(target_os = "macos")]
-    Event::RedrawRequested(_) => redraw(),
+    Event::RedrawRequested(_) => paint(),
     _ => false,
   }
 }
@@ -510,15 +520,15 @@ pub fn handle_gl_loop<T: UserEvent>(
 
     let iter = windows_lock.values_mut();
 
-    let mut should_quit = false;
+    let mut should_close = false;
 
     for win in iter {
-      let mut should_quit = false;
+      let mut should_close = false;
       if let Some(glutin_window_context) = &mut win.inner {
-        should_quit = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
+        should_close = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
       }
 
-      if should_quit {
+      if should_close {
         on_window_close(&mut win.inner);
       }
     }
@@ -567,14 +577,14 @@ pub fn handle_gl_loop<T: UserEvent>(
             if !handled {
               let mut integration = glutin_window_context.integration.borrow_mut();
               integration.on_event(app.as_mut(), event);
-              if integration.should_quit() {
-                should_quit = true;
+              if integration.should_close() {
+                should_close = true;
                 *control_flow = ControlFlow::Wait;
               }
             }
             gl_window.window().request_redraw();
           }
-          if should_quit {
+          if should_close {
             on_window_close(glutin_window_context);
           } else {
             if let Some(window) = windows_lock.get(&window_id) {

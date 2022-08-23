@@ -99,7 +99,7 @@ impl eframe::App for Layout {
       if (textfield.lost_focus() && ui.input().key_pressed(egui::Key::Enter)) || button.clicked() {
         let _ = tx.send(input.clone());
         input.clear();
-        frame.quit();
+        frame.close();
       }
     });
   }
