@@ -19,10 +19,17 @@ raw-window-handle = "0.5"
 
 [dev-dependencies]
 tauri = { version = "1.0", git = "https://github.com/tauri-apps/tauri",  features = ["dialog-message"] }
+egui_demo_app = { path = "examples/egui_demo_app" }
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
 gtk = { version = "0.15", features = [ "v3_20" ] }
 
 [[example]]
-name = "basic"
-path = "examples/basic/main.rs"
+name = "demo"
+path = "examples/demo/main.rs"
+
+[workspace]
+members = [
+  "examples/egui_demo_app",
+  "examples/egui_demo_lib",
+]
