@@ -5,8 +5,6 @@
 use eframe::CreationContext;
 use raw_window_handle::HasRawWindowHandle;
 use tauri_runtime::{window::WindowEvent, RunEvent, UserEvent};
-#[cfg(target_os = "macos")]
-use tauri_runtime_wry::wry::application::platform::macos::WindowExtMacOS;
 #[cfg(target_os = "linux")]
 use tauri_runtime_wry::wry::application::platform::unix::WindowExtUnix;
 #[cfg(windows)]
