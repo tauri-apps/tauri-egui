@@ -24,29 +24,29 @@ pub use demo::DemoWindows;
 /// Create a [`Hyperlink`](egui::Hyperlink) to this egui source code file on github.
 #[macro_export]
 macro_rules! egui_github_link_file {
-    () => {
-        $crate::egui_github_link_file!("(source code)")
-    };
-    ($label: expr) => {
-        egui::github_link_file!(
-            "https://github.com/emilk/egui/blob/master/",
-            egui::RichText::new($label).small()
-        )
-    };
+  () => {
+    $crate::egui_github_link_file!("(source code)")
+  };
+  ($label: expr) => {
+    egui::github_link_file!(
+      "https://github.com/emilk/egui/blob/master/",
+      egui::RichText::new($label).small()
+    )
+  };
 }
 
 /// Create a [`Hyperlink`](egui::Hyperlink) to this egui source code file and line on github.
 #[macro_export]
 macro_rules! egui_github_link_file_line {
-    () => {
-        $crate::egui_github_link_file_line!("(source code)")
-    };
-    ($label: expr) => {
-        egui::github_link_file_line!(
-            "https://github.com/emilk/egui/blob/master/",
-            egui::RichText::new($label).small()
-        )
-    };
+  () => {
+    $crate::egui_github_link_file_line!("(source code)")
+  };
+  ($label: expr) => {
+    egui::github_link_file_line!(
+      "https://github.com/emilk/egui/blob/master/",
+      egui::RichText::new($label).small()
+    )
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -61,40 +61,40 @@ Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, tur
 
 #[test]
 fn test_egui_e2e() {
-    let mut demo_windows = crate::DemoWindows::default();
-    let ctx = egui::Context::default();
-    let raw_input = egui::RawInput::default();
+  let mut demo_windows = crate::DemoWindows::default();
+  let ctx = egui::Context::default();
+  let raw_input = egui::RawInput::default();
 
-    const NUM_FRAMES: usize = 5;
-    for _ in 0..NUM_FRAMES {
-        let full_output = ctx.run(raw_input.clone(), |ctx| {
-            demo_windows.ui(ctx);
-        });
-        let clipped_primitives = ctx.tessellate(full_output.shapes);
-        assert!(!clipped_primitives.is_empty());
-    }
+  const NUM_FRAMES: usize = 5;
+  for _ in 0..NUM_FRAMES {
+    let full_output = ctx.run(raw_input.clone(), |ctx| {
+      demo_windows.ui(ctx);
+    });
+    let clipped_primitives = ctx.tessellate(full_output.shapes);
+    assert!(!clipped_primitives.is_empty());
+  }
 }
 
 #[test]
 fn test_egui_zero_window_size() {
-    let mut demo_windows = crate::DemoWindows::default();
-    let ctx = egui::Context::default();
-    let raw_input = egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::ZERO)),
-        ..Default::default()
-    };
+  let mut demo_windows = crate::DemoWindows::default();
+  let ctx = egui::Context::default();
+  let raw_input = egui::RawInput {
+    screen_rect: Some(egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::ZERO)),
+    ..Default::default()
+  };
 
-    const NUM_FRAMES: usize = 5;
-    for _ in 0..NUM_FRAMES {
-        let full_output = ctx.run(raw_input.clone(), |ctx| {
-            demo_windows.ui(ctx);
-        });
-        let clipped_primitives = ctx.tessellate(full_output.shapes);
-        assert!(
-            clipped_primitives.is_empty(),
-            "There should be nothing to show"
-        );
-    }
+  const NUM_FRAMES: usize = 5;
+  for _ in 0..NUM_FRAMES {
+    let full_output = ctx.run(raw_input.clone(), |ctx| {
+      demo_windows.ui(ctx);
+    });
+    let clipped_primitives = ctx.tessellate(full_output.shapes);
+    assert!(
+      clipped_primitives.is_empty(),
+      "There should be nothing to show"
+    );
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -102,6 +102,6 @@ fn test_egui_zero_window_size() {
 /// Detect narrow screens. This is used to show a simpler UI on mobile devices,
 /// especially for the web demo at <https://egui.rs>.
 pub fn is_mobile(ctx: &egui::Context) -> bool {
-    let screen_size = ctx.input().screen_rect().size();
-    screen_size.x < 550.0
+  let screen_size = ctx.input().screen_rect().size();
+  screen_size.x < 550.0
 }

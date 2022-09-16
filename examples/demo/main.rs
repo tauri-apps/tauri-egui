@@ -24,9 +24,7 @@ async fn open_native_window(
   let _window = egui_handle
     .create_window(
       "native-window".to_string(),
-      Box::new(|cc| {
-        Box::new(egui_demo_app::WrapApp::new(cc))
-      }),
+      Box::new(|cc| Box::new(egui_demo_app::WrapApp::new(cc))),
       "Login".into(),
       native_options,
     )

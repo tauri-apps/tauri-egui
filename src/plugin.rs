@@ -22,8 +22,8 @@ use tauri_runtime_wry::{
   },
   Context as WryContext, CursorIconWrapper, EventLoopIterationContext, Message,
   PhysicalPositionWrapper, PhysicalSizeWrapper, Plugin, PositionWrapper, RawWindowHandle,
-  SizeWrapper, WebContextStore, WebviewId, WebviewIdStore, WindowEventListeners,
-  WindowEventWrapper, WindowMenuEventListeners, WindowMessage,
+  SizeWrapper, WebContextStore, WebviewId, WindowEventListeners, WindowEventWrapper, WindowId,
+  WindowMenuEventListeners, WindowMessage,
 };
 
 use crate::{Error, Result};
@@ -43,6 +43,19 @@ pub mod window;
 use window::Window;
 
 pub type AppCreator = Box<dyn FnOnce(&CreationContext<'_>) -> Box<dyn eframe::App + Send> + Send>;
+
+#[derive(Debug, Clone, Default)]
+pub struct WebviewIdStore(Arc<Mutex<HashMap<WindowId, WebviewId>>>);
+
+impl WebviewIdStore {
+  pub fn insert(&self, w: WindowId, id: WebviewId) {
+    self.0.lock().unwrap().insert(w, id);
+  }
+
+  fn get(&self, w: &WindowId) -> Option<WebviewId> {
+    self.0.lock().unwrap().get(w).copied()
+  }
+}
 
 pub struct CreateWindowPayload {
   window_id: WebviewId,
@@ -70,6 +83,7 @@ unsafe impl Sync for MainThreadContext {}
 pub struct Context<T: UserEvent> {
   pub(crate) inner: WryContext<T>,
   pub(crate) main_thread: MainThreadContext,
+  pub(crate) webview_id_map: WebviewIdStore,
 }
 
 pub struct EguiPlugin<T: UserEvent> {
@@ -139,7 +153,7 @@ impl<T: UserEvent> EguiPluginHandle<T> {
       if let Some(main_thread) = main_thread {
         create_gl_window(
           &main_thread.window_target,
-          &self.context.inner.webview_id_map,
+          &self.context.webview_id_map,
           &self.context.main_thread.windows,
           label,
           app_creator,
@@ -189,7 +203,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
     if let Ok(payload) = self.create_window_channel.1.try_recv() {
       let res = create_gl_window(
         event_loop,
-        &context.webview_id_map,
+        &self.context.webview_id_map,
         &self.context.main_thread.windows,
         payload.label,
         payload.app_creator,
@@ -201,7 +215,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
       payload.tx.send(res).unwrap();
     }
     handle_gl_loop(
-      &self.context.main_thread.windows,
+      &self.context,
       event,
       event_loop,
       control_flow,
@@ -359,7 +373,7 @@ pub fn create_gl_window<T: UserEvent>(
 
   let system_theme = native_options.system_theme();
   let mut integration = epi_integration::EpiIntegration::new(
-    &event_loop,
+    event_loop,
     painter.max_texture_side(),
     gl_window.window(),
     system_theme,
@@ -429,7 +443,7 @@ fn win_mac_gl_loop<T: UserEvent>(
     let screen_size_in_pixels: [u32; 2] = window.inner_size().into();
 
     egui_glow::painter::clear(
-      &gl,
+      gl,
       screen_size_in_pixels,
       app.clear_color(&integration.egui_ctx.style().visuals),
     );
@@ -500,7 +514,7 @@ fn win_mac_gl_loop<T: UserEvent>(
 }
 
 pub fn handle_gl_loop<T: UserEvent>(
-  windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
+  egui_context: &Context<T>,
   event: &Event<'_, Message<T>>,
   _event_loop: &EventLoopWindowTarget<Message<T>>,
   control_flow: &mut ControlFlow,
@@ -509,11 +523,12 @@ pub fn handle_gl_loop<T: UserEvent>(
   is_focused: &mut bool,
 ) -> bool {
   let mut prevent_default = false;
-  let EventLoopIterationContext {
-    callback,
+  let Context {
+    main_thread: MainThreadContext { windows, .. },
     webview_id_map,
     ..
-  } = context;
+  } = egui_context;
+  let EventLoopIterationContext { callback, .. } = context;
   let has_egui_window = !windows.lock().unwrap().is_empty();
   if has_egui_window {
     let mut windows_lock = windows.lock().unwrap();
@@ -525,7 +540,7 @@ pub fn handle_gl_loop<T: UserEvent>(
     for win in iter {
       let mut should_close = false;
       if let Some(glutin_window_context) = &mut win.inner {
-        should_close = win_mac_gl_loop(control_flow, glutin_window_context, &event, *is_focused);
+        should_close = win_mac_gl_loop(control_flow, glutin_window_context, event, *is_focused);
       }
 
       if should_close {
@@ -537,57 +552,55 @@ pub fn handle_gl_loop<T: UserEvent>(
       Event::WindowEvent {
         event, window_id, ..
       } => {
-        let window_id = webview_id_map.get(window_id);
+        if let Some(window_id) = webview_id_map.get(window_id) {
+          if let TaoWindowEvent::Destroyed = event {
+            windows_lock.remove(&window_id);
+          }
 
-        if let TaoWindowEvent::Destroyed = event {
-          windows_lock.remove(&window_id);
-        }
+          if let Some(window) = windows_lock.get_mut(&window_id) {
+            let label = &window.label;
+            let glutin_window_context = &mut window.inner;
+            let window_event_listeners = &window.window_event_listeners;
+            let handled = match event {
+              TaoWindowEvent::Focused(new_focused) => {
+                *is_focused = *new_focused;
+                false
+              }
+              TaoWindowEvent::Resized(physical_size) => {
+                // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
+                // See: https://github.com/rust-windowing/winit/issues/208
+                // This solves an issue where the app would panic when minimizing on Windows.
+                if physical_size.width > 0 && physical_size.height > 0 {
+                  if let Some(glutin_window_context) = glutin_window_context.as_ref() {
+                    glutin_window_context.context.resize(*physical_size);
+                  }
+                }
+                false
+              }
+              TaoWindowEvent::CloseRequested => on_close_requested(
+                callback,
+                (label, glutin_window_context),
+                window_event_listeners,
+              ),
+              _ => false,
+            };
 
-        if let Some(window) = windows_lock.get_mut(&window_id) {
-          let label = &window.label;
-          let glutin_window_context = &mut window.inner;
-          let window_event_listeners = &window.window_event_listeners;
-          let handled = match event {
-            TaoWindowEvent::Focused(new_focused) => {
-              *is_focused = *new_focused;
-              false
-            }
-            TaoWindowEvent::Resized(physical_size) => {
-              // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
-              // See: https://github.com/rust-windowing/winit/issues/208
-              // This solves an issue where the app would panic when minimizing on Windows.
-              if physical_size.width > 0 && physical_size.height > 0 {
-                if let Some(glutin_window_context) = glutin_window_context.as_ref() {
-                  glutin_window_context.context.resize(*physical_size);
+            if let Some(glutin_window_context) = glutin_window_context.as_mut() {
+              let gl_window = &glutin_window_context.context;
+              let app = &mut glutin_window_context.app;
+              if !handled {
+                let mut integration = glutin_window_context.integration.borrow_mut();
+                integration.on_event(app.as_mut(), event);
+                if integration.should_close() {
+                  should_close = true;
+                  *control_flow = ControlFlow::Wait;
                 }
               }
-              false
+              gl_window.window().request_redraw();
             }
-            TaoWindowEvent::CloseRequested => on_close_requested(
-              callback,
-              (label, glutin_window_context),
-              window_event_listeners,
-            ),
-            _ => false,
-          };
-
-          if let Some(glutin_window_context) = glutin_window_context.as_mut() {
-            let gl_window = &glutin_window_context.context;
-            let app = &mut glutin_window_context.app;
-            if !handled {
-              let mut integration = glutin_window_context.integration.borrow_mut();
-              integration.on_event(app.as_mut(), event);
-              if integration.should_close() {
-                should_close = true;
-                *control_flow = ControlFlow::Wait;
-              }
-            }
-            gl_window.window().request_redraw();
-          }
-          if should_close {
-            on_window_close(glutin_window_context);
-          } else {
-            if let Some(window) = windows_lock.get(&window_id) {
+            if should_close {
+              on_window_close(glutin_window_context);
+            } else if let Some(window) = windows_lock.get(&window_id) {
               if let Some(event) = WindowEventWrapper::from(event).0 {
                 let label = window.label.clone();
                 let window_event_listeners = window.window_event_listeners.clone();
@@ -603,9 +616,9 @@ pub fn handle_gl_loop<T: UserEvent>(
                 }
               }
             }
-          }
 
-          prevent_default = true;
+            prevent_default = true;
+          }
         }
       }
 

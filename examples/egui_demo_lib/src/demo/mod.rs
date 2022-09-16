@@ -31,22 +31,22 @@ pub mod window_options;
 pub mod window_with_panels;
 
 pub use {
-    about::About, demo_app_windows::DemoWindows, misc_demo_window::MiscDemoWindow,
-    widget_gallery::WidgetGallery,
+  about::About, demo_app_windows::DemoWindows, misc_demo_window::MiscDemoWindow,
+  widget_gallery::WidgetGallery,
 };
 
 // ----------------------------------------------------------------------------
 
 /// Something to view in the demo windows
 pub trait View {
-    fn ui(&mut self, ui: &mut egui::Ui);
+  fn ui(&mut self, ui: &mut egui::Ui);
 }
 
 /// Something to view
 pub trait Demo {
-    /// `&'static` so we can also use it as a key to store open/close state.
-    fn name(&self) -> &'static str;
+  /// `&'static` so we can also use it as a key to store open/close state.
+  fn name(&self) -> &'static str;
 
-    /// Show windows, etc
-    fn show(&mut self, ctx: &egui::Context, open: &mut bool);
+  /// Show windows, etc
+  fn show(&mut self, ctx: &egui::Context, open: &mut bool);
 }

@@ -39,7 +39,7 @@ wgpu = ["eframe/wgpu", "bytemuck", "pollster", "dep:wgpu"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["js-sys", "wasmbind"] }
-eframe = { package = "eframe_tao", version = "0.19.0", default-features = false }
+eframe = { package = "eframe_tao", version = "0.20.0", default-features = false }
 egui = { version = "0.19.0", features = ["extra_debug_asserts"] }
 egui_demo_lib = { version = "0.19.0", path = "../egui_demo_lib", features = ["chrono"] }
 
