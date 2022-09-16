@@ -48,6 +48,7 @@ impl<T: UserEvent, R: Runtime> PluginBuilder<T> for EguiPluginBuilder<R> {
         main_thread: plugin::MainThreadContext {
           windows: Default::default(),
         },
+        webview_id_map: Default::default(),
       },
       create_window_channel: sync_channel(1),
       is_focused: false,
