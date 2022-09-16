@@ -4,7 +4,6 @@
 
 use eframe::CreationContext;
 use raw_window_handle::HasRawWindowHandle;
-use tauri::utils::Theme;
 use tauri_runtime::{window::WindowEvent, RunEvent, UserEvent};
 #[cfg(target_os = "macos")]
 use tauri_runtime_wry::wry::application::platform::macos::WindowExtMacOS;
@@ -505,9 +504,7 @@ fn win_mac_gl_loop<T: UserEvent>(
   };
 
   match event {
-    #[cfg(not(target_os = "macos"))]
     Event::RedrawEventsCleared => paint(),
-    #[cfg(target_os = "macos")]
     Event::RedrawRequested(_) => paint(),
     _ => false,
   }
@@ -686,11 +683,8 @@ pub(crate) fn handle_user_message<T: UserEvent>(
             .send(RawWindowHandle(window.raw_window_handle()))
             .unwrap(),
           WindowMessage::Theme(tx) => {
-            #[cfg(any(windows, target_os = "macos"))]
             tx.send(tauri_runtime_wry::map_theme(&window.theme()))
               .unwrap();
-            #[cfg(not(windows))]
-            tx.send(Theme::Light).unwrap();
           }
           // Setters
           WindowMessage::Center => {
