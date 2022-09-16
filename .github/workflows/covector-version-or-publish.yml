@@ -29,7 +29,7 @@ jobs:
           createRelease: true
       - name: create pull request
         id: cpr
-        uses: tauri-apps/create-pull-request@v2.8.0
+        uses: tauri-apps/create-pull-request@v3.4.1
         with:
           title: "Publish New Versions"
           labels: "version updates"
