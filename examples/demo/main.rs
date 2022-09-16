@@ -8,7 +8,7 @@
 )]
 
 use tauri::{RunEvent, State};
-use tauri_egui::{eframe, egui};
+use tauri_egui::eframe;
 
 #[tauri::command]
 async fn open_native_window(
