@@ -1,0 +1,11 @@
+[advisories]
+ignore = [
+  # xml-rs is a dev dependency
+  "RUSTSEC-2022-0048",
+  # ansi_term is a dev dependency
+  "RUSTSEC-2021-0139",
+  # chrono is a dev dependency
+  "RUSTSEC-2020-0071",
+  # serde_cbor is a dev dependency
+  "RUSTSEC-2021-0127"
+]
