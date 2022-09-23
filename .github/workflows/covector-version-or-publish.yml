@@ -18,7 +18,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: cargo login
-        run: cargo login ${{ secrets.crate_token }}
+        run: cargo login ${{ secrets.ORG_CRATES_IO_TOKEN }}
 
       - name: git config
         run: |
@@ -33,7 +33,7 @@ jobs:
           createRelease: true
       - name: create pull request
         id: cpr
-        uses: tauri-apps/create-pull-request@v3.4.1
+        uses: tauri-apps/create-pull-request@v3
         with:
           title: "Publish New Versions"
           labels: "version updates"
