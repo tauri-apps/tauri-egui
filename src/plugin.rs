@@ -308,7 +308,11 @@ impl MaybeCurrentGlContext {
     }
     impl Drop for DropGuard<'_> {
       fn drop(&mut self) {
-        *self.opt = Some(unsafe { ManuallyDrop::take(&mut self.ctx).treat_as_not_current() });
+        *self.opt = Some(unsafe {
+          ManuallyDrop::take(&mut self.ctx)
+            .make_not_current()
+            .unwrap()
+        });
       }
     }
 
