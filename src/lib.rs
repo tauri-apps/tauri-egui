@@ -16,6 +16,8 @@ mod plugin;
 use plugin::EguiPlugin;
 pub use plugin::EguiPluginHandle;
 
+pub type Window = plugin::Window<tauri::EventLoopMessage>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
   #[error("failed to create window: {0}")]
