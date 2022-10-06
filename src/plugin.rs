@@ -37,7 +37,7 @@ use std::{
 };
 
 pub mod window;
-use window::Window;
+pub(super) use window::Window;
 
 pub type AppCreator = Box<dyn FnOnce(&CreationContext<'_>) -> Box<dyn eframe::App + Send> + Send>;
 
