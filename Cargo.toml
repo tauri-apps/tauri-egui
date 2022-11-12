@@ -5,33 +5,33 @@ edition = "2021"
 license = "Apache-2.0 OR MIT"
 readme = "README.md"
 homepage = "https://tauri.app"
-categories = [ "gui", "tauri" ]
+categories = ["gui", "tauri"]
 description = "A Tauri plugin for the egui library"
 
 [dependencies]
 thiserror = "1"
-tauri = "1.1"
-tauri-runtime = "0.11"
-tauri-runtime-wry = "0.11"
+tauri = "1.2"
+tauri-runtime = "0.12"
+tauri-runtime-wry = "0.12"
 egui = "0.19"
-eframe = { package = "eframe_tao", version = "0.20.0" }
-egui-winit = { package = "egui-tao", version = "0.20.0" }
-egui_glow = { package = "egui_glow_tao", version = "0.20.0" }
-glutin = { package = "glutin_tao", version = "0.30" }
+eframe = { package = "eframe_tao", version = "0.20.1" }
+egui-winit = { package = "egui-tao", version = "0.20.1" }
+egui_glow = { package = "egui_glow_tao", version = "0.20.1" }
+glutin = { package = "glutin_tao", version = "0.30.1" }
 glow = "0.11"
 rand = "0.8"
 raw-window-handle = "0.5"
 
 [dev-dependencies]
-tauri = { version = "1.1", features = [ "dialog-message" ] }
+tauri = { version = "1.2", features = ["dialog-message"] }
 egui_demo_app = { path = "examples/egui_demo_app" }
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
-gtk = { version = "0.15", features = [ "v3_20" ] }
+gtk = { version = "0.15", features = ["v3_20"] }
 
 [[example]]
 name = "demo"
 path = "examples/demo/main.rs"
 
 [workspace]
-members = [ "examples/egui_demo_app", "examples/egui_demo_lib" ]
+members = ["examples/egui_demo_app", "examples/egui_demo_lib"]
