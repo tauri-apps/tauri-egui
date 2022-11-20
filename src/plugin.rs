@@ -332,8 +332,9 @@ pub fn create_gl_window<T: UserEvent>(
   let storage = epi_integration::create_storage(&label);
   let window_settings = epi_integration::load_window_settings(storage.as_deref());
 
-  let window_builder =
-    epi_integration::window_builder(&native_options, &window_settings).with_title(&title);
+  let window_builder = epi_integration::window_builder(&native_options, &window_settings)
+    .with_title(&title)
+    .with_focused(true);
 
   use eframe::HardwareAcceleration;
   let hardware_acceleration = match native_options.hardware_acceleration {
