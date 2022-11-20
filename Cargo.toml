@@ -1,11 +1,11 @@
 [package]
 name = "tauri-egui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0 OR MIT"
 readme = "README.md"
 homepage = "https://tauri.app"
-categories = ["gui", "tauri"]
+categories = [ "gui", "tauri" ]
 description = "A Tauri plugin for the egui library"
 
 [dependencies]
@@ -23,15 +23,15 @@ rand = "0.8"
 raw-window-handle = "0.5"
 
 [dev-dependencies]
-tauri = { version = "1.2", features = ["dialog-message"] }
+tauri = { version = "1.2", features = [ "dialog-message" ] }
 egui_demo_app = { path = "examples/egui_demo_app" }
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
-gtk = { version = "0.15", features = ["v3_20"] }
+gtk = { version = "0.15", features = [ "v3_20" ] }
 
 [[example]]
 name = "demo"
 path = "examples/demo/main.rs"
 
 [workspace]
-members = ["examples/egui_demo_app", "examples/egui_demo_lib"]
+members = [ "examples/egui_demo_app", "examples/egui_demo_lib" ]
