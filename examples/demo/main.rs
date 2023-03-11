@@ -34,17 +34,15 @@ async fn open_native_window(
 }
 
 fn main() {
-  tauri::Builder::default()
+  let mut app = tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![open_native_window])
-    .setup(|app| {
-      app.wry_plugin(tauri_egui::EguiPluginBuilder::new(app.handle()));
-      Ok(())
-    })
     .build(tauri::generate_context!("examples/demo/tauri.conf.json"))
-    .expect("error while building tauri application")
-    .run(|_app, event| {
-      if let RunEvent::WindowEvent { label, event, .. } = event {
-        println!("{} {:?}", label, event);
-      }
-    });
+    .expect("error while building tauri application");
+  app.wry_plugin(tauri_egui::EguiPluginBuilder::new(app.handle()));
+
+  app.run(|_app, event| {
+    if let RunEvent::WindowEvent { label, event, .. } = event {
+      println!("{} {:?}", label, event);
+    }
+  });
 }
