@@ -1,5 +1,10 @@
 # Changelog
 
+## \[0.2.0]
+
+- Update tauri-egui to tauri v2.
+  - [fe43ff1](https://www.github.com/tauri-apps/tauri-egui/commit/fe43ff13eb43881258993da4f00778749d9fce66) Add change file on 2023-03-11
+
 ## \[0.1.1]
 
 - Update dependencies.
