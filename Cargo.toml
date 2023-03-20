@@ -1,6 +1,6 @@
 [package]
 name = "tauri-egui"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0 OR MIT"
 readme = "README.md"
@@ -23,7 +23,7 @@ rand = "0.8"
 raw-window-handle = "0.5"
 
 [dev-dependencies]
-tauri = { version = "=2.0.0-alpha.4"}
+tauri = { version = "=2.0.0-alpha.4" }
 egui_demo_app = { path = "examples/egui_demo_app" }
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]

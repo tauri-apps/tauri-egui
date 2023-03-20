@@ -1,5 +1,10 @@
 # Changelog
 
+## \[0.3.0]
+
+- Update tauri-egui to tauri v2 alpha 4.
+  - [c276d41](https://www.github.com/tauri-apps/tauri-egui/commit/c276d4192487b35eb0923188d8668f1fff6544db) Added change file on 2023-03-20
+
 ## \[0.2.0]
 
 - Update tauri-egui to tauri v2.
