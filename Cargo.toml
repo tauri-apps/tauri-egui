@@ -10,9 +10,9 @@ description = "A Tauri plugin for the egui library"
 
 [dependencies]
 thiserror = "1"
-tauri = "2.0.0-alpha.4"
-tauri-runtime = "0.13.0-alpha.2"
-tauri-runtime-wry = "0.13.0-alpha.2"
+tauri = "=2.0.0-alpha.4"
+tauri-runtime = "=0.13.0-alpha.2"
+tauri-runtime-wry = "=0.13.0-alpha.2"
 egui = "0.19"
 eframe = { package = "eframe_tao", version = "0.22.0" }
 egui-winit = { package = "egui-tao", version = "0.22.0" }
@@ -23,7 +23,7 @@ rand = "0.8"
 raw-window-handle = "0.5"
 
 [dev-dependencies]
-tauri = { version = "2.0.0-alpha.4"}
+tauri = { version = "=2.0.0-alpha.4"}
 egui_demo_app = { path = "examples/egui_demo_app" }
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
