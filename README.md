@@ -15,6 +15,7 @@
 | [**tauri**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri)                         | runtime core                              | [![](https://img.shields.io/badge/crate.io-v2.0.0--alpha.4-orange)](https://crates.io/crates/tauri)                         |
 | [**tauri-runtime**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri-runtime)         | layer between Tauri and webview libraries | [![](https://img.shields.io/badge/crate.io-v0.13.0--alpha.2-orange)](https://crates.io/crates/tauri-runtime)         |
 | [**tauri-runtime-wry**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri-runtime-wry) | enables system-level interaction via WRY  | [![](https://img.shields.io/badge/crate.io-v0.13.0--alpha.2-orange)](https://crates.io/crates/tauri-runtime-wry) |
+| [**egui**](https://github.com/tauri-apps/egui) | immediate mode GUI library for Rust  | [![](https://img.shields.io/badge/crate.io-v0.19.0-orange)](https://crates.io/crates/egui) |
 
 ## About tauri-egui
 
