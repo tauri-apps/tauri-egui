@@ -12,7 +12,7 @@
 
 | Component                                                                                    | Description                               | Version                                                                                                  | Lin | Win | Mac |
 | -------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- | --- | --- | --- |
-| [**tauri**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri)                         | runtime core                              | [![](https://img.shields.io/crates/v/tauri.svg)](https://crates.io/crates/tauri)                         | ✅  | ✅  | ✅  |
+| [**tauri**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri)                         | runtime core                              | [![](https://img.shields.io/badge/crate.io-V2.0.0-alpha.4-orange)](https://crates.io/crates/tauri)                         | ✅  | ✅  | ✅  |
 | [**tauri-runtime**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri-runtime)         | layer between Tauri and webview libraries | [![](https://img.shields.io/crates/v/tauri-runtime.svg)](https://crates.io/crates/tauri-runtime)         | ✅  | ✅  | ✅  |
 | [**tauri-runtime-wry**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri-runtime-wry) | enables system-level interaction via WRY  | [![](https://img.shields.io/crates/v/tauri-runtime-wry.svg)](https://crates.io/crates/tauri-runtime-wry) | ✅  | ✅  | ✅  |
 
