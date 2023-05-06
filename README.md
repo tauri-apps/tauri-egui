@@ -8,6 +8,14 @@
 [![https://good-labs.github.io/greater-good-affirmation/assets/images/badge.svg](https://good-labs.github.io/greater-good-affirmation/assets/images/badge.svg)](https://good-labs.github.io/greater-good-affirmation)
 [![support](https://img.shields.io/badge/sponsor-Open%20Collective-blue.svg)](https://opencollective.com/tauri)
 
+## Dependency
+
+| Component                                                                                    | Description                               | Version                                                                                                  | Lin | Win | Mac |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- | --- | --- | --- |
+| [**tauri**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri)                         | runtime core                              | [![](https://img.shields.io/crates/v/tauri.svg)](https://crates.io/crates/tauri)                         | ✅  | ✅  | ✅  |
+| [**tauri-runtime**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri-runtime)         | layer between Tauri and webview libraries | [![](https://img.shields.io/crates/v/tauri-runtime.svg)](https://crates.io/crates/tauri-runtime)         | ✅  | ✅  | ✅  |
+| [**tauri-runtime-wry**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri-runtime-wry) | enables system-level interaction via WRY  | [![](https://img.shields.io/crates/v/tauri-runtime-wry.svg)](https://crates.io/crates/tauri-runtime-wry) | ✅  | ✅  | ✅  |
+
 ## About tauri-egui
 
 `tauri-egui` is a Tauri plugin for using the [`egui library`](https://github.com/emilk/egui) in a Tauri application via [`glutin`](https://github.com/tauri-apps/glutin). `egui` is a pure Rust GUI library that runs natively, recommended by the Tauri team for secure contexts such as password and secret interfaces.
