@@ -8,6 +8,15 @@
 [![https://good-labs.github.io/greater-good-affirmation/assets/images/badge.svg](https://good-labs.github.io/greater-good-affirmation/assets/images/badge.svg)](https://good-labs.github.io/greater-good-affirmation)
 [![support](https://img.shields.io/badge/sponsor-Open%20Collective-blue.svg)](https://opencollective.com/tauri)
 
+## Dependency
+
+| Component                                                                                    | Description                               | Version                                                                                                  |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [**tauri**](https://github.com/tauri-apps/tauri/tree/dev/core/tauri)                         | runtime core                              | [![](https://img.shields.io/badge/crate.io-v2.0.0--alpha.4-orange)](https://crates.io/crates/tauri)                         |
+| [**egui**](https://github.com/tauri-apps/egui) | immediate mode GUI library for Rust  | [![](https://img.shields.io/badge/crate.io-v0.19.0-orange)](https://crates.io/crates/egui) |
+| [**tao**](https://github.com/tauri-apps/tao) | cross-platform application window creation library in Rust  | [![](https://img.shields.io/badge/crate.io-v0.18.0-orange)](https://crates.io/crates/tao) |
+| [**glutin**](https://github.com/tauri-apps/glutin) | low-level library for OpenGL context creation, written in pure Rust.  | [![](https://img.shields.io/badge/crate.io-v0.29.1-orange)](https://crates.io/crates/glutin) |
+
 ## About tauri-egui
 
 `tauri-egui` is a Tauri plugin for using the [`egui library`](https://github.com/emilk/egui) in a Tauri application via [`glutin`](https://github.com/tauri-apps/glutin). `egui` is a pure Rust GUI library that runs natively, recommended by the Tauri team for secure contexts such as password and secret interfaces.
