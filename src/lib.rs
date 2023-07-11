@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-use std::sync::mpsc::sync_channel;
+use std::{sync::mpsc::sync_channel, time::Instant};
 
-use glutin::{ContextError, CreationError};
+// use glutin::{ContextError, CreationError};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_runtime::UserEvent;
 use tauri_runtime_wry::{Context, PluginBuilder};
@@ -16,14 +16,16 @@ mod plugin;
 use plugin::EguiPlugin;
 pub use plugin::EguiPluginHandle;
 
-pub type Window = plugin::Window<tauri::EventLoopMessage>;
+// pub type Window = plugin::Window<tauri::EventLoopMessage>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-  #[error("failed to create window: {0}")]
-  FailedToCreateWindow(#[from] CreationError),
-  #[error("failed to acquire OpenGL context: {0}")]
-  OpenGlContext(#[from] ContextError),
+  // #[error("failed to create window: {0}")]
+  // FailedToCreateWindow(#[from] CreationError),
+  #[error("glutin error: {0}")]
+  Glutin(#[from] glutin::error::Error),
+  #[error("Found no glutin configs matching the template")]
+  NoGlutinConfigs,
   #[error("failed to create painter: {0}")]
   FailedToCreatePainter(String),
 }
@@ -45,15 +47,11 @@ impl<T: UserEvent, R: Runtime> PluginBuilder<T> for EguiPluginBuilder<R> {
 
   fn build(self, context: Context<T>) -> Self::Plugin {
     let plugin = EguiPlugin {
-      context: plugin::Context {
-        inner: context,
-        main_thread: plugin::MainThreadContext {
-          windows: Default::default(),
-        },
-        webview_id_map: Default::default(),
-      },
+      context,
       create_window_channel: sync_channel(1),
+      running: None,
       is_focused: false,
+      next_repaint_time: Instant::now(),
     };
     self.app.manage(plugin.handle());
     plugin
