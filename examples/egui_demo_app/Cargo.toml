@@ -1,10 +1,10 @@
 [package]
 name = "egui_demo_app"
-version = "0.19.0"
+version = "0.22.0"
 authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.61"
+rust-version = "1.65"
 publish = false
 default-run = "egui_demo_app"
 
@@ -19,35 +19,34 @@ crate-type = ["cdylib", "rlib"]
 default = ["glow", "persistence"]
 
 http = ["ehttp", "image", "poll-promise", "egui_extras/image"]
-persistence = [
-    "eframe/persistence",
-    "egui/persistence",
-    "serde",
-]
-screen_reader = ["eframe/screen_reader"] # experimental
-serde = [
-    "dep:serde",
-    "egui_demo_lib/serde",
-    "egui_extras/serde",
-    "egui/serde",
-]
+persistence = ["eframe/persistence", "egui/persistence", "serde"]
+web_screen_reader = ["eframe/web_screen_reader"]                  # experimental
+serde = ["dep:serde", "egui_demo_lib/serde", "egui/serde"]
 syntax_highlighting = ["egui_demo_lib/syntax_highlighting"]
 
 glow = ["eframe/glow"]
-wgpu = ["eframe/wgpu", "bytemuck", "pollster", "dep:wgpu"]
+## wgpu = ["eframe/wgpu", "bytemuck"]
 
 
 [dependencies]
-chrono = { version = "0.4", features = ["js-sys", "wasmbind"] }
-eframe = { package = "eframe_tao", version = "0.22.0", default-features = false }
-egui = { version = "0.19.0", features = ["extra_debug_asserts"] }
-egui_demo_lib = { version = "0.19.0", path = "../egui_demo_lib", features = ["chrono"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "js-sys",
+  "wasmbind",
+] }
+eframe = { package = "eframe_tao", git = "https://github.com/tauri-apps/egui", branch = "0.21", version = "0.23.0", default-features = false }
+
+egui = { version = "0.22.0", features = [
+  "extra_debug_asserts",
+] }
+egui_demo_lib = { version = "0.22.0", features = [
+  "chrono",
+] }
+log = { version = "0.4", features = ["std"] }
 
 # Optional dependencies:
 
 bytemuck = { version = "1.7.1", optional = true }
-egui_extras = { version = "0.19.0", optional = true }
-wgpu = { version = "0.13", optional = true, features = ["webgl"] }
+egui_extras = { version = "0.22.0", optional = true}
 
 # feature "http":
 ehttp = { version = "0.2.0", optional = true }
@@ -55,8 +54,7 @@ image = { version = "0.24", optional = true, default-features = false, features 
   "jpeg",
   "png",
 ] }
-poll-promise = { version = "0.1", optional = true, default-features = false }
-pollster = { version = "0.2.5", optional = true }
+poll-promise = { version = "0.2", optional = true, default-features = false }
 
 # feature "persistence":
 serde = { version = "1", optional = true, features = ["derive"] }
@@ -64,9 +62,10 @@ serde = { version = "1", optional = true, features = ["derive"] }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tracing-subscriber = "0.3"
+env_logger = "0.10"
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.6"
-tracing-wasm = "0.2"
+wasm-bindgen = "=0.2.86"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"

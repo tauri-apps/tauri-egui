@@ -37,4 +37,4 @@ name = "demo"
 path = "examples/demo/main.rs"
 
 [workspace]
-members = [ "examples/egui_demo_app", "examples/egui_demo_lib" ]
+members = [ "examples/egui_demo_app" ]
