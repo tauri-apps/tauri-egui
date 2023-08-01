@@ -46,6 +46,9 @@ use std::{
 // pub mod window;
 // pub(super) use window::Window;
 
+// We only supports one egui window so we give fixed id for now.
+const EGUI_WINDOW_ID: u64 = 2201;
+
 pub type AppCreator = Box<dyn FnOnce(&CreationContext<'_>) -> Box<dyn eframe::App + Send> + Send>;
 
 #[derive(Debug)]
@@ -104,7 +107,7 @@ impl<T: UserEvent> EguiPlugin<T> {
 impl<T: UserEvent> EguiPluginHandle<T> {
   /// Fetch a single window by its label.
   pub fn get_window(&self) -> Option<()> {
-    //TODO
+    //TODO get window handle
     None
   }
 
@@ -115,20 +118,8 @@ impl<T: UserEvent> EguiPluginHandle<T> {
     title: String,
     native_options: eframe::NativeOptions,
   ) -> crate::Result<()> {
-    self.context.run_threaded(|main_thread| {
-      // if let Some(main_thread) = main_thread {
-      //   todo!()
-      //   // create_gl_window(
-      //   //   &main_thread.window_target,
-      //   //   label,
-      //   //   app_creator,
-      //   //   title,
-      //   //   native_options,
-      //   //   window_id,
-      //   //   &self.context.proxy,
-      //   // )
-      // } else {
-      // let (tx, rx) = channel();
+    self.context.run_threaded(|_main_thread| {
+      // Payload request is always sent to eventloop no matter this is main thread or not
       let payload = CreateWindowPayload {
         app_creator,
         title,
@@ -192,8 +183,7 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
         }
 
         {
-          // TODO Set correct window_id
-          let window_id = 1000;
+          let window_id = EGUI_WINDOW_ID;
           let event_loop_proxy = proxy.clone();
           integration
             .egui_ctx
@@ -250,8 +240,11 @@ impl<T: UserEvent> Plugin<T> for EguiPlugin<T> {
       }
 
       tao::event::Event::UserEvent(Message::Window(id, WindowMessage::RequestRedraw)) => {
-        // TODO check window ID
-        EventResult::RepaintNow
+        if *id == EGUI_WINDOW_ID {
+          EventResult::RepaintNow
+        } else {
+          EventResult::Wait
+        }
       }
 
       tao::event::Event::NewEvents(tao::event::StartCause::ResumeTimeReached { .. }) => {
@@ -361,7 +354,6 @@ impl<T: UserEvent> EguiPlugin<T> {
             }
             tao::event::WindowEvent::CloseRequested if running.integration.should_close() => {
               log::debug!("Received WindowEvent::CloseRequested");
-              // TODO on_close_requested
               return Ok(EventResult::Exit);
             }
             _ => {}
@@ -382,10 +374,10 @@ impl<T: UserEvent> EguiPlugin<T> {
             EventResult::Wait
           }
         }
-        // TODO userevent
-        // tao::event::Event::UserEvent(message) => {
-        //   //handle_user_message(message, windows);
-        // }
+        tao::event::Event::UserEvent(message) => {
+          handle_user_message(message, &running.gl_window);
+          EventResult::Wait
+        }
         _ => EventResult::Wait,
       }
     } else {
@@ -815,226 +807,13 @@ fn extremely_far_future() -> std::time::Instant {
   std::time::Instant::now() + std::time::Duration::from_secs(10_000_000_000)
 }
 
-/*
-fn win_mac_gl_loop<T: UserEvent>(
-  control_flow: &mut ControlFlow,
-  glutin_window_context: &mut GlutinWindowContext,
-  event: &Event<Message<T>>,
-  is_focused: bool,
-) -> bool {
-  let gl_window = &glutin_window_context.context;
-  let gl = &glutin_window_context.glow_context;
-  let app = &mut glutin_window_context.app;
-  let mut integration = glutin_window_context.integration.borrow_mut();
-  let mut painter = glutin_window_context.painter.borrow_mut();
-  let window = gl_window.window();
-
-  let mut paint = || {
-    let screen_size_in_pixels: [u32; 2] = window.inner_size().into();
-
-    egui_glow::painter::clear(
-      gl,
-      screen_size_in_pixels,
-      app.clear_color(&integration.egui_ctx.style().visuals),
-    );
-
-    let egui::FullOutput {
-      platform_output,
-      repaint_after,
-      textures_delta,
-      shapes,
-    } = integration.update(app.as_mut(), window);
-
-    integration.handle_platform_output(window, platform_output);
-
-    let clipped_primitives = integration.egui_ctx.tessellate(shapes);
-
-    painter.paint_and_update_textures(
-      screen_size_in_pixels,
-      integration.egui_ctx.pixels_per_point(),
-      &clipped_primitives,
-      &textures_delta,
-    );
-
-    integration.post_rendering(app.as_mut(), window);
-
-    gl_window.swap_buffers().unwrap();
-
-    let mut should_close = false;
-
-    *control_flow = if integration.should_close() {
-      should_close = true;
-      ControlFlow::Wait
-    } else if repaint_after.is_zero() {
-      window.request_redraw();
-      ControlFlow::Poll
-    } else if let Some(repaint_after_instant) = std::time::Instant::now().checked_add(repaint_after)
-    {
-      // if repaint_after is something huge and can't be added to Instant,
-      // we will use `ControlFlow::Wait` instead.
-      // technically, this might lead to some weird corner cases where the user *WANTS*
-      // winit to use `WaitUntil(MAX_INSTANT)` explicitly. they can roll their own
-      // egui backend impl i guess.
-      ControlFlow::WaitUntil(repaint_after_instant)
-    } else {
-      ControlFlow::Wait
-    };
-
-    integration.maybe_autosave(app.as_mut(), window);
-
-    if !is_focused {
-      // On Mac, a minimized Window uses up all CPU: https://github.com/emilk/egui/issues/325
-      // We can't know if we are minimized: https://github.com/rust-windowing/winit/issues/208
-      // But we know if we are focused (in foreground). When minimized, we are not focused.
-      // However, a user may want an egui with an animation in the background,
-      // so we still need to repaint quite fast.
-      std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-
-    should_close
-  };
-
-  match event {
-    Event::RedrawEventsCleared => paint(),
-    Event::RedrawRequested(_) => paint(),
-    _ => false,
-  }
-}
-
-pub fn handle_gl_loop<T: UserEvent>(
-  egui_context: &Context<T>,
-  event: &Event<'_, Message<T>>,
-  _event_loop: &EventLoopWindowTarget<Message<T>>,
-  control_flow: &mut ControlFlow,
-  context: EventLoopIterationContext<'_, T>,
-  _web_context: &WebContextStore,
-  is_focused: &mut bool,
-) -> bool {
-  let mut prevent_default = false;
-  let Context {
-    main_thread: MainThreadContext { windows, .. },
-    webview_id_map,
-    ..
-  } = egui_context;
-  let EventLoopIterationContext { callback, .. } = context;
-  let has_egui_window = !windows.lock().unwrap().is_empty();
-  if has_egui_window {
-    let mut windows_lock = windows.lock().unwrap();
-
-    let iter = windows_lock.values_mut();
-
-    let mut should_close = false;
-
-    for win in iter {
-      let mut should_close = false;
-      if let Some(glutin_window_context) = &mut win.inner {
-        should_close = win_mac_gl_loop(control_flow, glutin_window_context, event, *is_focused);
-      }
-
-      if should_close {
-        on_window_close(&mut win.inner);
-      }
-    }
-
-    match event {
-      Event::WindowEvent {
-        event, window_id, ..
-      } => {
-        if let Some(window_id) = webview_id_map.get(window_id) {
-          if let TaoWindowEvent::Destroyed = event {
-            windows_lock.remove(&window_id);
-          }
-
-          if let Some(window) = windows_lock.get_mut(&window_id) {
-            let label = &window.label;
-            let glutin_window_context = &mut window.inner;
-            let window_event_listeners = &window.window_event_listeners;
-            let handled = match event {
-              TaoWindowEvent::Focused(new_focused) => {
-                *is_focused = *new_focused;
-                false
-              }
-              TaoWindowEvent::Resized(physical_size) => {
-                // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
-                // See: https://github.com/rust-windowing/winit/issues/208
-                // This solves an issue where the app would panic when minimizing on Windows.
-                if physical_size.width > 0 && physical_size.height > 0 {
-                  if let Some(glutin_window_context) = glutin_window_context.as_ref() {
-                    glutin_window_context.context.resize(*physical_size);
-                  }
-                }
-                false
-              }
-              TaoWindowEvent::CloseRequested => on_close_requested(
-                callback,
-                (label, glutin_window_context),
-                window_event_listeners,
-              ),
-              _ => false,
-            };
-
-            if let Some(glutin_window_context) = glutin_window_context.as_mut() {
-              let gl_window = &glutin_window_context.context;
-              let app = &mut glutin_window_context.app;
-              if !handled {
-                let mut integration = glutin_window_context.integration.borrow_mut();
-                integration.on_event(app.as_mut(), event);
-                if integration.should_close() {
-                  should_close = true;
-                  *control_flow = ControlFlow::Wait;
-                }
-              }
-              gl_window.window().request_redraw();
-            }
-            if should_close {
-              on_window_close(glutin_window_context);
-            } else if let Some(window) = windows_lock.get(&window_id) {
-              if let Some(event) = WindowEventWrapper::from(event).0 {
-                let label = window.label.clone();
-                let window_event_listeners = window.window_event_listeners.clone();
-                drop(windows_lock);
-                callback(RunEvent::WindowEvent {
-                  label,
-                  event: event.clone(),
-                });
-                let listeners = window_event_listeners.lock().unwrap();
-                let handlers = listeners.values();
-                for handler in handlers {
-                  handler(&event);
-                }
-              }
-            }
-
-            prevent_default = true;
-          }
-        }
-      }
-
-      Event::UserEvent(message) => {
-        drop(windows_lock);
-        handle_user_message(message, windows);
-      }
-
-      _ => (),
-    }
-  }
-
-  prevent_default
-}
-
-pub(crate) fn handle_user_message<T: UserEvent>(
+fn handle_user_message<T: UserEvent>(
   message: &Message<T>,
-  windows: &Arc<Mutex<HashMap<WebviewId, WindowWrapper>>>,
+  gl_window: &GlutinWindowContext,
 ) {
   if let Message::Window(window_id, message) = message {
-    if let Some(glutin_window_context_opt) = windows
-      .lock()
-      .unwrap()
-      .get_mut(window_id)
-      .map(|win| &mut win.inner)
-    {
-      if let Some(glutin_window_context) = glutin_window_context_opt {
-        let window = glutin_window_context.context.window();
+      if *window_id == EGUI_WINDOW_ID {
+        let window = gl_window.window();
         match message {
           WindowMessage::ScaleFactor(tx) => tx.send(window.scale_factor()).unwrap(),
           WindowMessage::InnerPosition(tx) => tx
@@ -1095,7 +874,7 @@ pub(crate) fn handle_user_message<T: UserEvent>(
           WindowMessage::Show => window.set_visible(true),
           WindowMessage::Hide => window.set_visible(false),
           WindowMessage::Close => {
-            on_window_close(glutin_window_context_opt);
+            // TODO on_window_close(glutin_window_context_opt);
           }
           WindowMessage::SetDecorations(decorations) => window.set_decorations(*decorations),
           WindowMessage::SetAlwaysOnTop(always_on_top) => {
@@ -1147,7 +926,7 @@ pub(crate) fn handle_user_message<T: UserEvent>(
             let _ = window.drag_window();
           }
           WindowMessage::UpdateMenuItem(_id, _update) => {
-            // TODO
+            // TODO update menu item
           }
           WindowMessage::RequestRedraw => {
             window.request_redraw();
@@ -1155,10 +934,12 @@ pub(crate) fn handle_user_message<T: UserEvent>(
           _ => (),
         }
       }
-    }
+    
   }
 }
 
+// TODO Do we need these?
+/*
 fn on_close_requested<'a, T: UserEvent>(
   callback: &'a mut (dyn FnMut(RunEvent<T>) + 'static),
   (label, glutin_window_context): (&str, &mut Option<Box<GlutinWindowContext>>),
@@ -1183,6 +964,7 @@ fn on_close_requested<'a, T: UserEvent>(
     false
   }
 }
+
 
 fn on_window_close(glutin_window_context: &mut Option<Box<GlutinWindowContext>>) {
   // Destrooy GL context if its a GLWindow
