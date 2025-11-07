@@ -28,6 +28,7 @@ use crate::{Error, Result};
 use std::{
   cell::RefCell,
   collections::HashMap,
+  mem::ManuallyDrop,
   ops::Deref,
   rc::Rc,
   sync::{
@@ -289,8 +290,47 @@ impl<T> Deref for MaybeRcCell<T> {
   }
 }
 
+pub struct MaybeCurrentGlContext(
+  Option<glutin::ContextWrapper<glutin::NotCurrent, glutin::window::Window>>,
+);
+impl MaybeCurrentGlContext {
+  fn new(ctx: glutin::ContextWrapper<glutin::NotCurrent, glutin::window::Window>) -> Self {
+    Self(Some(ctx))
+  }
+
+  pub fn with_make_context<T, F>(&mut self, mut with: F) -> T
+  where
+    F: FnMut(&mut glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>) -> T,
+  {
+    struct DropGuard<'a> {
+      opt: &'a mut Option<glutin::ContextWrapper<glutin::NotCurrent, glutin::window::Window>>,
+      ctx: ManuallyDrop<glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>>,
+    }
+    impl Drop for DropGuard<'_> {
+      fn drop(&mut self) {
+        *self.opt = Some(unsafe {
+          ManuallyDrop::take(&mut self.ctx)
+            .make_not_current()
+            .unwrap()
+        });
+      }
+    }
+
+    let ctx = self.0.take().unwrap();
+    let mut guard = DropGuard {
+      opt: &mut self.0,
+      ctx: ManuallyDrop::new(unsafe { ctx.make_current().unwrap() }),
+    };
+    with(&mut *guard.ctx)
+  }
+
+  pub fn window(&self) -> &glutin::window::Window {
+    self.0.as_ref().unwrap().window()
+  }
+}
+
 pub struct GlutinWindowContext {
-  pub context: MaybeRc<glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>>,
+  pub context: MaybeCurrentGlContext,
   app: Box<dyn eframe::App + Send>,
   glow_context: Arc<glow::Context>,
   painter: MaybeRcCell<egui_glow::Painter>,
@@ -318,15 +358,6 @@ pub fn create_gl_window<T: UserEvent>(
   window_id: WebviewId,
   proxy: &EventLoopProxy<Message<T>>,
 ) -> Result<()> {
-  if let Some(window) = windows
-    .lock()
-    .expect("poisoned window collection")
-    .values_mut()
-    .next()
-  {
-    on_window_close(&mut window.inner);
-  }
-
   use eframe::native::epi_integration;
 
   let storage = epi_integration::create_storage(&label);
@@ -408,7 +439,9 @@ pub fn create_gl_window<T: UserEvent>(
     WindowWrapper {
       label,
       inner: Some(Box::new(GlutinWindowContext {
-        context: MaybeRc::new(gl_window),
+        context: MaybeCurrentGlContext::new(unsafe {
+          gl_window.make_not_current().map_err(|(_, e)| e)?
+        }),
         app,
         glow_context: gl,
         painter: MaybeRcCell::new(painter),
@@ -429,76 +462,80 @@ fn win_mac_gl_loop<T: UserEvent>(
   event: &Event<Message<T>>,
   is_focused: bool,
 ) -> bool {
-  let gl_window = &glutin_window_context.context;
+  let gl_window = &mut glutin_window_context.context;
   let gl = &glutin_window_context.glow_context;
   let app = &mut glutin_window_context.app;
   let mut integration = glutin_window_context.integration.borrow_mut();
   let mut painter = glutin_window_context.painter.borrow_mut();
-  let window = gl_window.window();
 
   let mut paint = || {
-    let screen_size_in_pixels: [u32; 2] = window.inner_size().into();
+    gl_window.with_make_context(|gl_window| {
+      let window = gl_window.window();
 
-    egui_glow::painter::clear(
-      gl,
-      screen_size_in_pixels,
-      app.clear_color(&integration.egui_ctx.style().visuals),
-    );
+      let screen_size_in_pixels: [u32; 2] = window.inner_size().into();
 
-    let egui::FullOutput {
-      platform_output,
-      repaint_after,
-      textures_delta,
-      shapes,
-    } = integration.update(app.as_mut(), window);
+      egui_glow::painter::clear(
+        gl,
+        screen_size_in_pixels,
+        app.clear_color(&integration.egui_ctx.style().visuals),
+      );
 
-    integration.handle_platform_output(window, platform_output);
+      let egui::FullOutput {
+        platform_output,
+        repaint_after,
+        textures_delta,
+        shapes,
+      } = integration.update(app.as_mut(), window);
 
-    let clipped_primitives = integration.egui_ctx.tessellate(shapes);
+      integration.handle_platform_output(window, platform_output);
 
-    painter.paint_and_update_textures(
-      screen_size_in_pixels,
-      integration.egui_ctx.pixels_per_point(),
-      &clipped_primitives,
-      &textures_delta,
-    );
+      let clipped_primitives = integration.egui_ctx.tessellate(shapes);
 
-    integration.post_rendering(app.as_mut(), window);
+      painter.paint_and_update_textures(
+        screen_size_in_pixels,
+        integration.egui_ctx.pixels_per_point(),
+        &clipped_primitives,
+        &textures_delta,
+      );
 
-    gl_window.swap_buffers().unwrap();
+      integration.post_rendering(app.as_mut(), window);
 
-    let mut should_close = false;
+      gl_window.swap_buffers().unwrap();
 
-    *control_flow = if integration.should_close() {
-      should_close = true;
-      ControlFlow::Wait
-    } else if repaint_after.is_zero() {
-      window.request_redraw();
-      ControlFlow::Poll
-    } else if let Some(repaint_after_instant) = std::time::Instant::now().checked_add(repaint_after)
-    {
-      // if repaint_after is something huge and can't be added to Instant,
-      // we will use `ControlFlow::Wait` instead.
-      // technically, this might lead to some weird corner cases where the user *WANTS*
-      // winit to use `WaitUntil(MAX_INSTANT)` explicitly. they can roll their own
-      // egui backend impl i guess.
-      ControlFlow::WaitUntil(repaint_after_instant)
-    } else {
-      ControlFlow::Wait
-    };
+      let mut should_close = false;
 
-    integration.maybe_autosave(app.as_mut(), window);
+      *control_flow = if integration.should_close() {
+        should_close = true;
+        ControlFlow::Wait
+      } else if repaint_after.is_zero() {
+        window.request_redraw();
+        ControlFlow::Poll
+      } else if let Some(repaint_after_instant) =
+        std::time::Instant::now().checked_add(repaint_after)
+      {
+        // if repaint_after is something huge and can't be added to Instant,
+        // we will use `ControlFlow::Wait` instead.
+        // technically, this might lead to some weird corner cases where the user *WANTS*
+        // winit to use `WaitUntil(MAX_INSTANT)` explicitly. they can roll their own
+        // egui backend impl i guess.
+        ControlFlow::WaitUntil(repaint_after_instant)
+      } else {
+        ControlFlow::Wait
+      };
 
-    if !is_focused {
-      // On Mac, a minimized Window uses up all CPU: https://github.com/emilk/egui/issues/325
-      // We can't know if we are minimized: https://github.com/rust-windowing/winit/issues/208
-      // But we know if we are focused (in foreground). When minimized, we are not focused.
-      // However, a user may want an egui with an animation in the background,
-      // so we still need to repaint quite fast.
-      std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+      integration.maybe_autosave(app.as_mut(), window);
 
-    should_close
+      if !is_focused {
+        // On Mac, a minimized Window uses up all CPU: https://github.com/emilk/egui/issues/325
+        // We can't know if we are minimized: https://github.com/rust-windowing/winit/issues/208
+        // But we know if we are focused (in foreground). When minimized, we are not focused.
+        // However, a user may want an egui with an animation in the background,
+        // so we still need to repaint quite fast.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+      }
+
+      should_close
+    })
   };
 
   match event {
@@ -566,8 +603,12 @@ pub fn handle_gl_loop<T: UserEvent>(
                 // See: https://github.com/rust-windowing/winit/issues/208
                 // This solves an issue where the app would panic when minimizing on Windows.
                 if physical_size.width > 0 && physical_size.height > 0 {
-                  if let Some(glutin_window_context) = glutin_window_context.as_ref() {
-                    glutin_window_context.context.resize(*physical_size);
+                  if let Some(glutin_window_context) = glutin_window_context.as_mut() {
+                    glutin_window_context
+                      .context
+                      .with_make_context(|gl_window| {
+                        gl_window.resize(*physical_size);
+                      });
                   }
                 }
                 false
@@ -581,7 +622,6 @@ pub fn handle_gl_loop<T: UserEvent>(
             };
 
             if let Some(glutin_window_context) = glutin_window_context.as_mut() {
-              let gl_window = &glutin_window_context.context;
               let app = &mut glutin_window_context.app;
               if !handled {
                 let mut integration = glutin_window_context.integration.borrow_mut();
@@ -591,7 +631,7 @@ pub fn handle_gl_loop<T: UserEvent>(
                   *control_flow = ControlFlow::Wait;
                 }
               }
-              gl_window.window().request_redraw();
+              glutin_window_context.context.window().request_redraw();
             }
             if should_close {
               on_window_close(glutin_window_context);
